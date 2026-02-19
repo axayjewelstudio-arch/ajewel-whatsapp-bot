@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ajewel2024")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
-PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID", "928999850307609")
+PHONE_NUMBER_ID = "928999850307609"
 
 CATALOG_LINKS = {
     "rings": "https://drive.google.com/rings-catalog-link",
