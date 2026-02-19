@@ -10,12 +10,11 @@ ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = "928999850307609"
 
 CATALOG_LINKS = {
-    "rings": "https://drive.google.com/rings-catalog-link",
-    "necklace": "https://drive.google.com/necklace-catalog-link",
-    "earrings": "https://drive.google.com/earrings-catalog-link",
-    "bangles": "https://drive.google.com/bangles-catalog-link",
-    "pendant": "https://drive.google.com/pendant-catalog-link",
-    "murti": "https://drive.google.com/murti-catalog-link"
+    "face": "https://a-jewel-studio-3.myshopify.com/collections/face-jewellery",
+    "neck": "https://a-jewel-studio-3.myshopify.com/collections/neck-jewellery",
+    "hand": "https://a-jewel-studio-3.myshopify.com/collections/hand-jewellery",
+    "lower": "https://a-jewel-studio-3.myshopify.com/collections/lower-body-jewellery",
+    "murti": "https://a-jewel-studio-3.myshopify.com/collections/murti-figurines"
 }
 
 user_sessions = {}
@@ -48,19 +47,18 @@ def send_list_message(to):
         "interactive": {
             "type": "list",
             "header": {"type": "text", "text": "A Jewel Studio"},
-            "body": {"text": "Welcome! Apni category select karein:"},
+            "body": {"text": "Welcome to A Jewel Studio!\nApni category select karein:"},
             "footer": {"text": "3D Jewellery Designs"},
             "action": {
                 "button": "Category Dekho",
                 "sections": [{
-                    "title": "Categories",
+                    "title": "Jewellery Categories",
                     "rows": [
-                        {"id": "rings", "title": "Rings", "description": "3D Ring Designs"},
-                        {"id": "necklace", "title": "Necklace", "description": "3D Necklace Designs"},
-                        {"id": "earrings", "title": "Earrings", "description": "3D Earring Designs"},
-                        {"id": "bangles", "title": "Bangles", "description": "3D Bangle Designs"},
-                        {"id": "pendant", "title": "Pendant", "description": "3D Pendant Designs"},
-                        {"id": "murti", "title": "Murti", "description": "3D Murti Designs"}
+                        {"id": "face", "title": "Face Jewellery", "description": "Ear, Nose, Head, Lip and Eye"},
+                        {"id": "neck", "title": "Neck Jewellery", "description": "Haar, Necklace, Pendant, Sets"},
+                        {"id": "hand", "title": "Hand Jewellery", "description": "Bangles, Kada, Rings, Bracelet"},
+                        {"id": "lower", "title": "Lower Body", "description": "Payal, Bichhiya, Kamarband"},
+                        {"id": "murti", "title": "Murti and Figurines", "description": "Hindu Gods, Animals, Mix"}
                     ]
                 }]
             }
@@ -128,22 +126,24 @@ def webhook():
                     send_customer_type(from_number)
 
                 else:
-                    send_message(from_number, "Namaste! Menu ke liye 'Hi' likho.")
+                    send_message(from_number, "Namaste! Menu ke liye Hi likho.")
 
             elif msg_type == "interactive":
                 interactive = msg["interactive"]
 
                 if interactive["type"] == "list_reply":
                     selected_id = interactive["list_reply"]["id"]
+                    selected_title = interactive["list_reply"]["title"]
                     user_sessions[from_number] = {
                         "category": selected_id,
                         "step": "waiting_design"
                     }
                     catalog_link = CATALOG_LINKS.get(selected_id, "Link unavailable")
                     send_message(from_number,
-                        f"Aapne *{selected_id.title()}* select kiya!\n\n"
-                        f"Catalog link: {catalog_link}\n\n"
-                        f"Design code enter karein (Example: ring001):"
+                        f"Aapne {selected_title} select kiya!\n\n"
+                        f"Catalog link:\n{catalog_link}\n\n"
+                        f"Catalog dekh kar apna design code enter karein\n"
+                        f"(Example: FACE-EAR-STUDS-001):"
                     )
 
                 elif interactive["type"] == "button_reply":
@@ -156,11 +156,12 @@ def webhook():
                         customer_type = "Retail Customer" if button_id == "retail" else "B2B / Wholesaler"
 
                         send_message(from_number,
-                            f"*Order Received!*\n\n"
+                            f"Order Received!\n\n"
                             f"Category: {category.title()}\n"
-                            f"Design Code: {design_code}\n"
+                            f"Design Code: {design_code.upper()}\n"
                             f"Customer Type: {customer_type}\n\n"
-                            f"Hum jaldi aapse contact karenge payment aur download link ke saath!\n\n"
+                            f"Hum jaldi aapse contact karenge\n"
+                            f"payment aur download link ke saath!\n\n"
                             f"Thank you for choosing A Jewel Studio!"
                         )
                         user_sessions.pop(from_number, None)
