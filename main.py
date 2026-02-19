@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 import requests
 import json
 import os
+import threading
+import time
 
 app = Flask(__name__)
 
@@ -18,6 +20,21 @@ CATALOG_LINKS = {
 }
 
 user_sessions = {}
+processed_messages = set()
+
+# Keep Alive - Render free tier sleep problem fix
+def keep_alive():
+    while True:
+        time.sleep(840)  # 14 minutes
+        try:
+            requests.get("https://ajewel-whatsapp-bot.onrender.com/")
+            print("Keep alive ping sent")
+        except:
+            pass
+
+thread = threading.Thread(target=keep_alive)
+thread.daemon = True
+thread.start()
 
 def send_message(to, message):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
@@ -109,8 +126,19 @@ def webhook():
 
         if "messages" in entry:
             msg = entry["messages"][0]
+            msg_id = msg.get("id")
             from_number = msg["from"]
             msg_type = msg["type"]
+
+            # ✅ FIX 1: Duplicate message check
+            if msg_id in processed_messages:
+                print(f"Duplicate message ignored: {msg_id}")
+                return jsonify({"status": "ok"}), 200
+            processed_messages.add(msg_id)
+
+            # Memory leak prevention - 1000 se zyada ho to purane clear karo
+            if len(processed_messages) > 1000:
+                processed_messages.clear()
 
             if msg_type == "text":
                 text = msg["text"]["body"].strip().lower()
