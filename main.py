@@ -118,7 +118,7 @@ def send_message(to, message):
         "text": {"body": message}
     }
     response = requests.post(url, headers=headers, json=data)
-    print(f"Send message: {response.status_code}")
+    print(f"Send message: {response.status_code} - {response.text}")
 
 def send_main_categories(to):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
@@ -178,6 +178,33 @@ def send_sub_categories(to, main_cat):
     response = requests.post(url, headers=headers, json=data)
     print(f"Sub categories: {response.status_code}")
 
+def send_catalog_button(to, sub_title, catalog_url):
+    """Send catalog as a CTA button — customer clicks to open catalog"""
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "header": {"type": "text", "text": sub_title},
+            "body": {
+                "text": "Niche button dabao — catalog khulega.\n\nDesigns dekho, cart mein add karo aur checkout karo.\n\nPayment ke baad aage ka process hoga."
+            },
+            "footer": {"text": "A Jewel Studio - 3D Jewellery Designs"},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": "Catalog Dekho",
+                    "url": catalog_url
+                }
+            }
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"Catalog button: {response.status_code} - {response.text}")
+
 def send_customer_type(to):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
@@ -187,7 +214,7 @@ def send_customer_type(to):
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": "Aap kaun hain?\n\nRetail - Personal use ke liye\nB2B - Business or Wholesale ke liye"},
+            "body": {"text": "Payment complete hua?\n\nAb batayein aap kaun hain:\n\nRetail - Personal use ke liye\nB2B - Business or Wholesale ke liye"},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "retail", "title": "Retail Customer"}},
@@ -277,10 +304,8 @@ def webhook():
                         f"Customer Type: {s.get('customer_type', '')}\n\n"
                         f"{'='*25}\n\n"
                         f"Thank you for choosing A Jewel Studio!\n\n"
-                        f"Aapka order receive ho gaya hai.\n"
-                        f"Jaldi hi payment link WhatsApp pe milega.\n"
-                        f"Payment complete hone ke baad\n"
-                        f"download link automatically aayega!\n\n"
+                        f"Aapka order confirm ho gaya hai.\n"
+                        f"Download link jaldi WhatsApp pe aayega!\n\n"
                         f"Koi sawal? Reply karein."
                     )
                     user_sessions.pop(from_number, None)
@@ -296,7 +321,7 @@ def webhook():
                     selected_id = interactive["list_reply"]["id"]
                     selected_title = interactive["list_reply"]["title"]
 
-                    # Main Category selected
+                    # Main Category selected → show Sub Categories
                     if selected_id in SUB_CATEGORIES:
                         user_sessions[from_number] = {
                             "main_category": selected_id,
@@ -305,26 +330,31 @@ def webhook():
                         }
                         send_sub_categories(from_number, selected_id)
 
-                    # Sub Category selected
+                    # Sub Category selected → show Catalog Button
                     elif selected_id in SUB_CATALOG_LINKS:
-                        sub_link = SUB_CATALOG_LINKS.get(selected_id, "")
+                        catalog_url = SUB_CATALOG_LINKS.get(selected_id, "")
                         user_sessions[from_number]["sub_category"] = selected_id
                         user_sessions[from_number]["sub_title"] = selected_title
-                        user_sessions[from_number]["step"] = "waiting_customer_type"
+                        user_sessions[from_number]["step"] = "waiting_payment"
 
+                        # Send catalog as clickable button
+                        send_catalog_button(from_number, selected_title, catalog_url)
+
+                        # After catalog button — inform about next step
                         send_message(from_number,
-                            f"Aapne {selected_title} select kiya!\n\n"
-                            f"Niche catalog link hai:\n{sub_link}\n\n"
-                            f"Catalog dekh kar products cart mein add karein\n"
-                            f"aur checkout karein.\n\n"
-                            f"Aage badhne ke liye niche select karein:"
+                            "Catalog dekh kar:\n"
+                            "1. Pasand ka design select karo\n"
+                            "2. Cart mein add karo\n"
+                            "3. Checkout karo aur payment karo\n\n"
+                            "Payment complete hone ke baad\n"
+                            "yahan wapas aao aur 'done' likhein."
                         )
-                        send_customer_type(from_number)
 
-                # Retail / B2B Button
+                # Button reply
                 elif interactive["type"] == "button_reply":
                     button_id = interactive["button_reply"]["id"]
 
+                    # Retail / B2B selected after payment
                     if button_id in ["retail", "b2b"]:
                         customer_type = "Retail Customer" if button_id == "retail" else "B2B / Wholesaler"
                         user_sessions[from_number]["customer_type"] = customer_type
@@ -335,11 +365,11 @@ def webhook():
                             f"Aapka poora naam kya hai?"
                         )
 
-                # WhatsApp Cart Order
+                # WhatsApp Cart Order received
                 elif interactive["type"] == "order":
                     order = interactive.get("order", {})
                     items = order.get("product_items", [])
-                    order_text = "New Cart Order Received!\n\nProducts:\n"
+                    order_text = "New Cart Order!\n\nProducts:\n"
                     total = 0
                     for item in items:
                         pid = item.get("product_retailer_id", "")
@@ -349,13 +379,16 @@ def webhook():
                         subtotal = qty * price
                         total += subtotal
                         order_text += f"- {pid} x{qty} = {currency} {subtotal:.2f}\n"
-                    order_text += f"\nTotal: INR {total:.2f}"
+                    order_text += f"\nTotal: INR {total:.2f}\n\nPayment complete karo aur wapas aao."
 
-                    user_sessions[from_number] = {
-                        "step": "waiting_customer_type",
-                        "cart_order": order_text
-                    }
+                    user_sessions[from_number]["step"] = "waiting_payment"
                     send_message(from_number, order_text)
+
+            # ── TEXT: "done" after payment ─────────────────────────
+            if msg_type == "text":
+                text = msg["text"]["body"].strip().lower()
+                if text in ["done", "paid", "payment done", "payment ho gaya", "ho gaya"]:
+                    user_sessions[from_number]["step"] = "waiting_customer_type"
                     send_customer_type(from_number)
 
     except Exception as e:
