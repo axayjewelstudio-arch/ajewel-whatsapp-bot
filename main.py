@@ -217,7 +217,7 @@ def webhook():
                     link = catalog_url(set_id)
                     send_catalog_button(from_number,
                         f"{selected_title} catalog dekho.\n\nPasand aaye to cart karein aur checkout karein.\n\nPayment ke baad 'done' likhein.",
-                        f"{selected_title} Catalog Dekho", link)
+                        "Catalog Dekho", link)
 
             elif interactive["type"] == "button_reply":
                 button_id = interactive["button_reply"]["id"]
