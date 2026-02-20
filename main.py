@@ -8,10 +8,11 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ajewel2024")
-ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
+VERIFY_TOKEN    = os.environ.get("VERIFY_TOKEN", "ajewel2024")
+ACCESS_TOKEN    = os.environ.get("ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = "928999850307609"
-SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
+SHEET_ID        = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
+SHOPIFY_REGISTER = "https://a-jewel-studio-3.myshopify.com/account/register"
 
 # ---- CATALOG URL ----
 def catalog_url(set_id):
@@ -19,33 +20,33 @@ def catalog_url(set_id):
 
 # ---- CATEGORY DATA ----
 MAIN_CATEGORIES = {
-    "face":  {"title": "Face Jewellery",       "desc": "Ear, Nose, Head, Lip and Eye",     "set_id": "25749951748007044"},
-    "neck":  {"title": "Neck Jewellery",       "desc": "Haar, Necklace, Pendant, Sets",    "set_id": "25770023742652990"},
-    "hand":  {"title": "Hand Jewellery",       "desc": "Bangles, Kada, Rings, Bracelet",   "set_id": "26078491468433934"},
-    "lower": {"title": "Lower Body Jewellery", "desc": "Payal, Bichhiya, Kamarband",       "set_id": "26473022232283999"},
-    "murti": {"title": "Murti and Figurines",  "desc": "Hindu Gods, Animals, Mix",         "set_id": "26328388420090334"},
-    "baby":  {"title": "Baby Jewellery",       "desc": "Bangles, Anklets, Rings, Chain",   "set_id": "25628597613502595"},
+    "face":  {"title": "Face Jewellery",       "desc": "Ear, Nose, Head, Lip and Eye",    "set_id": "25749951748007044"},
+    "neck":  {"title": "Neck Jewellery",       "desc": "Haar, Necklace, Pendant, Sets",   "set_id": "25770023742652990"},
+    "hand":  {"title": "Hand Jewellery",       "desc": "Bangles, Kada, Rings, Bracelet",  "set_id": "26078491468433934"},
+    "lower": {"title": "Lower Body Jewellery", "desc": "Payal, Bichhiya, Kamarband",      "set_id": "26473022232283999"},
+    "murti": {"title": "Murti and Figurines",  "desc": "Hindu Gods, Animals, Mix",        "set_id": "26328388420090334"},
+    "baby":  {"title": "Baby Jewellery",       "desc": "Bangles, Anklets, Rings, Chain",  "set_id": "25628597613502595"},
 }
 
 SUB_CATEGORIES = {
     "face": [
-        {"id": "face_ear",  "title": "Ear Jewellery",         "desc": "Studs, Jhumka, Chandbali, Hoops",      "set_id": "26090421433907722"},
-        {"id": "face_nose", "title": "Nose Jewellery",        "desc": "Nath, Nathni, Laung, Septum",          "set_id": "26026555510330213"},
-        {"id": "face_head", "title": "Head Jewellery",        "desc": "Maang Tikka, Maatha Patti, Passa",     "set_id": "25629234596754210"},
-        {"id": "face_lip",  "title": "Lip and Eye Jewellery", "desc": "Lip Pin, Lip Ring, Eye Pin",           "set_id": "25993617556990784"},
+        {"id": "face_ear",  "title": "Ear Jewellery",         "desc": "Studs, Jhumka, Chandbali, Hoops",   "set_id": "26090421433907722"},
+        {"id": "face_nose", "title": "Nose Jewellery",        "desc": "Nath, Nathni, Laung, Septum",       "set_id": "26026555510330213"},
+        {"id": "face_head", "title": "Head Jewellery",        "desc": "Maang Tikka, Maatha Patti, Passa",  "set_id": "25629234596754210"},
+        {"id": "face_lip",  "title": "Lip and Eye Jewellery", "desc": "Lip Pin, Lip Ring, Eye Pin",        "set_id": "25993617556990784"},
     ],
     "neck": [
-        {"id": "neck_trad", "title": "Traditional Haar",      "desc": "Kanthi, Para Kanthi, Mag Mala",        "set_id": "25892135267109218"},
-        {"id": "neck_mod",  "title": "Modern Necklace",       "desc": "Choker, Chains, Statement",            "set_id": "26277843851853890"},
-        {"id": "neck_pend", "title": "Pendant and Butti",     "desc": "Tanmanya, Locket, Nameplate",          "set_id": "25850209314636536"},
-        {"id": "neck_set",  "title": "Special Sets",          "desc": "Mangalsutra, Necklace Set, Bridal",    "set_id": "26252397311060803"},
+        {"id": "neck_trad", "title": "Traditional Haar",      "desc": "Kanthi, Para Kanthi, Mag Mala",     "set_id": "25892135267109218"},
+        {"id": "neck_mod",  "title": "Modern Necklace",       "desc": "Choker, Chains, Statement",         "set_id": "26277843851853890"},
+        {"id": "neck_pend", "title": "Pendant and Butti",     "desc": "Tanmanya, Locket, Nameplate",       "set_id": "25850209314636536"},
+        {"id": "neck_set",  "title": "Special Sets",          "desc": "Mangalsutra, Necklace Set, Bridal", "set_id": "26252397311060803"},
     ],
     "hand": [
-        {"id": "hand_bangle",   "title": "Bangdi and Bangle",        "desc": "Plain, Designer, Openable, Javri",      "set_id": "26079781681708309"},
-        {"id": "hand_kada",     "title": "Kada",                     "desc": "Plain, Designer, Patla, Religious",     "set_id": "26047371878255581"},
-        {"id": "hand_bracelet", "title": "Bracelet",                 "desc": "Chain, Tennis, Kaida Bracelet",         "set_id": "26349002784723474"},
-        {"id": "hand_baju",     "title": "Baju Band and Haath Panja","desc": "Armlet, Haath Panja, Baju Band",        "set_id": "34397077723223821"},
-        {"id": "hand_rings",    "title": "Rings",                    "desc": "Solitaire, Band, Statement, Couple",    "set_id": "25891367957149672"},
+        {"id": "hand_bangle",   "title": "Bangdi and Bangle",         "desc": "Plain, Designer, Openable, Javri",   "set_id": "26079781681708309"},
+        {"id": "hand_kada",     "title": "Kada",                      "desc": "Plain, Designer, Patla, Religious",  "set_id": "26047371878255581"},
+        {"id": "hand_bracelet", "title": "Bracelet",                  "desc": "Chain, Tennis, Kaida Bracelet",      "set_id": "26349002784723474"},
+        {"id": "hand_baju",     "title": "Baju Band and Haath Panja", "desc": "Armlet, Haath Panja, Baju Band",     "set_id": "34397077723223821"},
+        {"id": "hand_rings",    "title": "Rings",                     "desc": "Solitaire, Band, Statement, Couple", "set_id": "25891367957149672"},
     ],
     "lower": [
         {"id": "lower_payal",    "title": "Payal and Anklet",      "desc": "Traditional Payal, Modern Anklet, Todi", "set_id": "33976400778641336"},
@@ -53,17 +54,17 @@ SUB_CATEGORIES = {
         {"id": "lower_kamar",    "title": "Kamarband and Waist",   "desc": "Kandora, Waist Chain, Hip Belt",         "set_id": "25835297096142403"},
     ],
     "murti": [
-        {"id": "murti_god",    "title": "Hindu God Murti", "desc": "Ganesh, Laxmi, Shiva, Krishna",  "set_id": "26357708767188650"},
-        {"id": "murti_animal", "title": "Animal Murti",    "desc": "Sacred, Royal Animals, Birds",   "set_id": "33871729065808088"},
-        {"id": "murti_mix",    "title": "Mix Designs",     "desc": "Abstract, Tribal, Decorative",   "set_id": "34195647333383660"},
+        {"id": "murti_god",    "title": "Hindu God Murti", "desc": "Ganesh, Laxmi, Shiva, Krishna", "set_id": "26357708767188650"},
+        {"id": "murti_animal", "title": "Animal Murti",    "desc": "Sacred, Royal Animals, Birds",  "set_id": "33871729065808088"},
+        {"id": "murti_mix",    "title": "Mix Designs",     "desc": "Abstract, Tribal, Decorative",  "set_id": "34195647333383660"},
     ],
     "baby": [
-        {"id": "baby_bangle",   "title": "Baby Bangles and Kada",   "desc": "Plain, Designer, Openable Bangle",  "set_id": "26693163706953517"},
-        {"id": "baby_anklet",   "title": "Baby Anklets and Payal",  "desc": "Plain, Ghunghroo, Chain Anklet",    "set_id": "25948367958163570"},
-        {"id": "baby_rings",    "title": "Baby Rings",              "desc": "Plain, Designer, Adjustable Ring",  "set_id": "26302662429369350"},
-        {"id": "baby_chain",    "title": "Baby Necklace and Chain", "desc": "Plain Chain, Pendant, Nameplate",   "set_id": "25864345456526176"},
-        {"id": "baby_earrings", "title": "Baby Earrings",           "desc": "Plain Studs, Flower, Small Bali",   "set_id": "26008758518787659"},
-        {"id": "baby_hair",     "title": "Baby Hair Accessories",   "desc": "Hair Pin, Juda Pin, Hair Clip",     "set_id": "34573479015569657"},
+        {"id": "baby_bangle",   "title": "Baby Bangles and Kada",   "desc": "Plain, Designer, Openable Bangle", "set_id": "26693163706953517"},
+        {"id": "baby_anklet",   "title": "Baby Anklets and Payal",  "desc": "Plain, Ghunghroo, Chain Anklet",  "set_id": "25948367958163570"},
+        {"id": "baby_rings",    "title": "Baby Rings",              "desc": "Plain, Designer, Adjustable Ring","set_id": "26302662429369350"},
+        {"id": "baby_chain",    "title": "Baby Necklace and Chain", "desc": "Plain Chain, Pendant, Nameplate", "set_id": "25864345456526176"},
+        {"id": "baby_earrings", "title": "Baby Earrings",           "desc": "Plain Studs, Flower, Small Bali", "set_id": "26008758518787659"},
+        {"id": "baby_hair",     "title": "Baby Hair Accessories",   "desc": "Hair Pin, Juda Pin, Hair Clip",   "set_id": "34573479015569657"},
     ],
 }
 
@@ -86,11 +87,23 @@ def get_sheet():
         ]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        sheet = client.open_by_key(SHEET_ID).sheet1
+        sheet  = client.open_by_key(SHEET_ID).sheet1
         return sheet
     except Exception as e:
         print(f"Sheet error: {e}")
         return None
+
+def is_existing_customer(whatsapp_number):
+    """Check if customer WhatsApp number already exists in sheet"""
+    try:
+        sheet = get_sheet()
+        if sheet:
+            # Column E (index 5) = WhatsApp Number
+            numbers = sheet.col_values(5)
+            return whatsapp_number in numbers
+    except Exception as e:
+        print(f"Check error: {e}")
+    return False
 
 def save_to_sheet(row_data):
     try:
@@ -107,21 +120,21 @@ def generate_order_id():
 
 # ---- SEND FUNCTIONS ----
 def send_message(to, message):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    url     = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
-    r = requests.post(url, headers=headers, json=data)
+    data    = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
+    r       = requests.post(url, headers=headers, json=data)
     print(f"send_message: {r.status_code} {r.text}")
 
 def send_list_message(to, header, body, button_label, sections):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    url     = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    data = {
+    data    = {
         "messaging_product": "whatsapp", "to": to, "type": "interactive",
         "interactive": {
             "type": "list",
             "header": {"type": "text", "text": header},
-            "body": {"text": body},
+            "body":   {"text": body},
             "footer": {"text": "A Jewel Studio - 3D Jewellery Designs"},
             "action": {"button": button_label, "sections": sections}
         }
@@ -130,13 +143,13 @@ def send_list_message(to, header, body, button_label, sections):
     print(f"send_list: {r.status_code} {r.text}")
 
 def send_button_message(to, body, buttons):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    url     = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    data = {
+    data    = {
         "messaging_product": "whatsapp", "to": to, "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": body},
+            "body":  {"text": body},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": b["id"], "title": b["title"]}}
@@ -148,10 +161,10 @@ def send_button_message(to, body, buttons):
     r = requests.post(url, headers=headers, json=data)
     print(f"send_button: {r.status_code} {r.text}")
 
-def send_catalog_button(to, body, button_text, url_link):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+def send_cta_button(to, body, button_text, url_link):
+    url     = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    data = {
+    data    = {
         "messaging_product": "whatsapp", "to": to, "type": "interactive",
         "interactive": {
             "type": "cta_url",
@@ -163,7 +176,7 @@ def send_catalog_button(to, body, button_text, url_link):
         }
     }
     r = requests.post(url, headers=headers, json=data)
-    print(f"send_catalog_btn: {r.status_code} {r.text}")
+    print(f"send_cta: {r.status_code} {r.text}")
 
 # ---- MENUS ----
 def send_main_category_menu(to):
@@ -172,11 +185,20 @@ def send_main_category_menu(to):
                       "Category Dekho", [{"title": "Main Categories", "rows": rows}])
 
 def send_sub_category_menu(to, main_id):
-    subs = SUB_CATEGORIES.get(main_id, [])
+    subs       = SUB_CATEGORIES.get(main_id, [])
     main_title = MAIN_CATEGORIES[main_id]["title"]
-    rows = [{"id": s["id"], "title": s["title"], "description": s["desc"]} for s in subs]
+    rows       = [{"id": s["id"], "title": s["title"], "description": s["desc"]} for s in subs]
     send_list_message(to, main_title, "Sub-category select karein:",
                       "Sub Category Dekho", [{"title": main_title, "rows": rows}])
+
+def send_retail_b2b_buttons(to):
+    send_button_message(to,
+        "Aap kaun hain? 😊\nApna type select karein:",
+        [
+            {"id": "retail", "title": "Retail Customer"},
+            {"id": "b2b",    "title": "B2B / Wholesaler"}
+        ]
+    )
 
 # ---- CONFIRMATION MESSAGES ----
 def send_retail_confirmation(to, session):
@@ -303,13 +325,13 @@ def webhook():
             # Collect name
             elif session.get("step") == "waiting_name":
                 user_sessions[from_number]["name"] = text
-                user_sessions[from_number]["step"] = "waiting_number"
+                user_sessions[from_number]["step"]  = "waiting_number"
                 send_message(from_number, "Aapka *contact number* likhein (10 digit):")
 
             # Collect phone
             elif session.get("step") == "waiting_number":
                 user_sessions[from_number]["contact"] = text
-                user_sessions[from_number]["step"] = "waiting_email"
+                user_sessions[from_number]["step"]    = "waiting_email"
                 send_message(from_number, "Aapka *email address* likhein:")
 
             # Collect email
@@ -326,19 +348,19 @@ def webhook():
             # Collect company (B2B)
             elif session.get("step") == "waiting_company":
                 user_sessions[from_number]["company"] = text
-                user_sessions[from_number]["step"] = "waiting_gst"
+                user_sessions[from_number]["step"]    = "waiting_gst"
                 send_message(from_number, "Aapka *GST Number* likhein:\n(Nahi hai toh 'NA' likhein)")
 
             # Collect GST (B2B)
             elif session.get("step") == "waiting_gst":
-                user_sessions[from_number]["gst"] = text
+                user_sessions[from_number]["gst"]  = text
                 user_sessions[from_number]["step"] = "waiting_address"
                 send_message(from_number, "Aapka *delivery address* likhein:\n(Company/Shop ka pura address)")
 
             # Collect address
             elif session.get("step") == "waiting_address":
                 user_sessions[from_number]["address"] = text
-                user_sessions[from_number]["step"] = "waiting_city"
+                user_sessions[from_number]["step"]    = "waiting_city"
                 send_message(from_number, "Aapka *sheher (city)* likhein:")
 
             # Collect city — final step
@@ -360,23 +382,35 @@ def webhook():
             items      = order_data.get("product_items", [])
             item_list  = []
             for item in items:
-                name = item.get("product_name", "Product")
-                qty  = item.get("quantity", 1)
-                item_list.append(f"{name} x{qty}")
+                pname = item.get("product_name", "Product")
+                qty   = item.get("quantity", 1)
+                item_list.append(f"{pname} x{qty}")
 
-            # Keep existing category info if available, add cart
-            existing = user_sessions.get(from_number, {})
+            # Keep existing session info, add cart
+            existing               = user_sessions.get(from_number, {})
             existing["cart_items"] = item_list
-            existing["step"]       = "customer_type"
-            user_sessions[from_number] = existing
 
-            send_button_message(from_number,
-                "Aapka cart mil gaya! 🛒\n\nAb batayein aap kaun hain?",
-                [
-                    {"id": "retail", "title": "Retail Customer"},
-                    {"id": "b2b",    "title": "B2B / Wholesaler"}
-                ]
-            )
+            # Check if existing customer in sheet
+            if is_existing_customer(from_number):
+                # Purana customer — seedha Retail/B2B
+                existing["step"]           = "customer_type"
+                user_sessions[from_number] = existing
+                send_retail_b2b_buttons(from_number)
+            else:
+                # Naya customer — Register karo pehle
+                existing["step"]           = "waiting_registration"
+                user_sessions[from_number] = existing
+                send_cta_button(
+                    from_number,
+                    "Namaste! Aapka order receive hua! 🛒\n\n"
+                    "Order confirm karne ke liye pehle\n"
+                    "ek baar registration zaroori hai.\n\n"
+                    "Neeche button click karein —\n"
+                    "registration ke baad 'Hi' likhein\n"
+                    "aur apna order complete karein! 😊",
+                    "Register Karein",
+                    SHOPIFY_REGISTER
+                )
 
         # ---- INTERACTIVE MESSAGES ----
         elif msg_type == "interactive":
@@ -389,8 +423,8 @@ def webhook():
                 # Main category selected
                 if selected_id in MAIN_CATEGORIES:
                     user_sessions[from_number] = {
-                        "step": "sub_category",
-                        "main_id": selected_id,
+                        "step":       "sub_category",
+                        "main_id":    selected_id,
                         "main_title": selected_title
                     }
                     send_sub_category_menu(from_number, selected_id)
@@ -405,13 +439,13 @@ def webhook():
                     user_sessions[from_number]["sub_id"]    = selected_id
                     user_sessions[from_number]["sub_title"] = selected_title
 
-                    link = catalog_url(set_id)
-                    send_catalog_button(from_number,
+                    send_cta_button(
+                        from_number,
                         f"{selected_title} designs dekhein catalog mein.\n"
-                        f"Pasand aaye toh cart mein add karein aur\n"
-                        f"'Send to business' press karein.",
+                        f"Pasand aaye toh cart mein add karein\n"
+                        f"aur 'Send to business' press karein.",
                         "Catalog Dekho 💎",
-                        link
+                        catalog_url(set_id)
                     )
 
             elif interactive["type"] == "button_reply":
