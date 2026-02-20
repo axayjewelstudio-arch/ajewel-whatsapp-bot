@@ -10,7 +10,7 @@ ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = "928999850307609"
 
 def catalog_url(set_id):
-    return f"https://www.facebook.com/commerce/products/catalog/{set_id}/"
+    return "https://wa.me/c/918141356990"
 
 MAIN_CATEGORIES = {
     "face": {"title": "Face Jewellery", "desc": "Ear, Nose, Head, Lip and Eye", "set_id": "25749951748007044"},
