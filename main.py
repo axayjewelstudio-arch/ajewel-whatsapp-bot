@@ -6,6 +6,7 @@ import gspread
 import razorpay
 import hmac
 import hashlib
+import time
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
@@ -21,7 +22,155 @@ CATALOG_LINK      = "https://wa.me/c/918141356990"
 RZP_KEY_ID        = os.environ.get("RAZORPAY_KEY_ID", "")
 RZP_KEY_SECRET    = os.environ.get("RAZORPAY_KEY_SECRET", "")
 
+# ---- SHOPIFY CONFIG ----
+SHOPIFY_STORE         = os.environ.get("SHOPIFY_STORE", "a-jewel-studio-3.myshopify.com")
+SHOPIFY_CLIENT_ID     = os.environ.get("SHOPIFY_CLIENT_ID", "")
+SHOPIFY_CLIENT_SECRET = os.environ.get("SHOPIFY_CLIENT_SECRET", "")
+SHOPIFY_API_VERSION   = "2025-01"
+
+# Shopify token cache
+_shopify_token         = None
+_shopify_token_expires = 0
+
 rzp_client = razorpay.Client(auth=(RZP_KEY_ID, RZP_KEY_SECRET))
+
+
+# ---- SHOPIFY TOKEN (Client Credentials) ----
+def get_shopify_token():
+    global _shopify_token, _shopify_token_expires
+    if _shopify_token and time.time() < _shopify_token_expires - 60:
+        return _shopify_token
+    try:
+        response = requests.post(
+            f"https://{SHOPIFY_STORE}/admin/oauth/access_token",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "grant_type":    "client_credentials",
+                "client_id":     SHOPIFY_CLIENT_ID,
+                "client_secret": SHOPIFY_CLIENT_SECRET,
+            }
+        )
+        if response.ok:
+            data                  = response.json()
+            _shopify_token        = data.get("access_token", "")
+            expires_in            = data.get("expires_in", 3600)
+            _shopify_token_expires = time.time() + expires_in
+            print(f"Shopify token fetched OK")
+            return _shopify_token
+        else:
+            print(f"Shopify token error: {response.status_code} {response.text}")
+            return ""
+    except Exception as e:
+        print(f"Shopify token exception: {e}")
+        return ""
+
+
+# ---- SHOPIFY — Check if customer exists by phone ----
+def shopify_customer_exists(whatsapp_number):
+    """
+    Returns True if a customer with this phone number exists in Shopify.
+    WhatsApp number format: 919876543210  → we search +919876543210
+    """
+    try:
+        token = get_shopify_token()
+        if not token:
+            return False
+        phone = "+" + whatsapp_number  # WhatsApp sends without +
+        url   = (
+            f"https://{SHOPIFY_STORE}/admin/api/{SHOPIFY_API_VERSION}"
+            f"/customers/search.json?query=phone:{phone}&limit=1"
+        )
+        resp  = requests.get(
+            url,
+            headers={"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+        )
+        if resp.ok:
+            customers = resp.json().get("customers", [])
+            print(f"Shopify customer check: {phone} → {len(customers)} found")
+            return len(customers) > 0
+        else:
+            print(f"Shopify search error: {resp.status_code} {resp.text}")
+            return False
+    except Exception as e:
+        print(f"shopify_customer_exists error: {e}")
+        return False
+
+
+# ---- SHOPIFY — Create Order for Retail Customer ----
+def shopify_create_order(session):
+    """
+    Creates a draft order in Shopify for retail customer.
+    Returns order_id (Shopify) or "" on failure.
+    """
+    try:
+        token     = get_shopify_token()
+        if not token:
+            return ""
+        name      = session.get("name", "")
+        phone     = session.get("contact", "")
+        email     = session.get("email", "")
+        address   = session.get("address", "")
+        city      = session.get("city", "")
+        cart      = session.get("cart_items", [])
+
+        # Build line items — we use custom items since we only have names
+        line_items = []
+        for item in cart:
+            # item format: "Product Name x2"
+            parts    = item.rsplit(" x", 1)
+            title    = parts[0].strip()
+            quantity = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+            line_items.append({
+                "title":    title,
+                "quantity": quantity,
+                "price":    "0.00",  # Price TBD by team
+                "requires_shipping": True
+            })
+
+        order_payload = {
+            "order": {
+                "line_items": line_items,
+                "customer": {
+                    "first_name": name.split()[0] if name else "",
+                    "last_name":  " ".join(name.split()[1:]) if len(name.split()) > 1 else "",
+                    "email":      email,
+                    "phone":      "+" + phone if not phone.startswith("+") else phone
+                },
+                "shipping_address": {
+                    "first_name": name,
+                    "address1":   address,
+                    "city":       city,
+                    "country":    "India",
+                    "phone":      phone
+                },
+                "financial_status": "pending",
+                "fulfillment_status": None,
+                "note": f"WhatsApp Order | WA: {session.get('wa_number','')}",
+                "tags": "whatsapp,retail",
+                "send_receipt": False,
+                "send_fulfillment_receipt": False
+            }
+        }
+
+        url  = f"https://{SHOPIFY_STORE}/admin/api/{SHOPIFY_API_VERSION}/orders.json"
+        resp = requests.post(
+            url,
+            headers={"X-Shopify-Access-Token": token, "Content-Type": "application/json"},
+            json=order_payload
+        )
+        if resp.ok:
+            order = resp.json().get("order", {})
+            shopify_order_id = str(order.get("id", ""))
+            shopify_order_no = str(order.get("order_number", ""))
+            print(f"Shopify order created: #{shopify_order_no} (id:{shopify_order_id})")
+            return shopify_order_id, shopify_order_no
+        else:
+            print(f"Shopify order error: {resp.status_code} {resp.text}")
+            return "", ""
+    except Exception as e:
+        print(f"shopify_create_order error: {e}")
+        return "", ""
+
 
 # ---- GOOGLE SHEETS ----
 def get_sheet():
@@ -39,16 +188,6 @@ def get_sheet():
     except Exception as e:
         print(f"Sheet error: {e}")
         return None
-
-def is_existing_customer(whatsapp_number):
-    try:
-        sheet = get_sheet()
-        if sheet:
-            numbers = sheet.col_values(5)
-            return whatsapp_number in numbers
-    except Exception as e:
-        print(f"Check error: {e}")
-    return False
 
 def save_to_sheet(row_data):
     try:
@@ -69,33 +208,36 @@ def update_sheet_status(order_id, status):
     except Exception as e:
         print(f"Update error: {e}")
 
+
 # ---- ORDER ID ----
 def generate_order_id():
     return "AJS" + datetime.now().strftime("%d%m%y%H%M%S")
+
 
 # ---- RAZORPAY ----
 def create_razorpay_link(amount_inr, order_id, customer_name, customer_phone):
     try:
         data = {
-            "amount": int(amount_inr * 100),
-            "currency": "INR",
-            "accept_partial": False,
-            "description": f"A Jewel Studio Order {order_id}",
+            "amount":          int(amount_inr * 100),
+            "currency":        "INR",
+            "accept_partial":  False,
+            "description":     f"A Jewel Studio Order {order_id}",
             "customer": {
-                "name": customer_name,
+                "name":    customer_name,
                 "contact": customer_phone,
             },
-            "notify": {"sms": False, "email": False},
-            "reminder_enable": False,
-            "notes": {"order_id": order_id},
-            "callback_url": "https://ajewel-whatsapp-bot.onrender.com/payment-callback",
-            "callback_method": "get"
+            "notify":           {"sms": False, "email": False},
+            "reminder_enable":  False,
+            "notes":            {"order_id": order_id},
+            "callback_url":     "https://ajewel-whatsapp-bot.onrender.com/payment-callback",
+            "callback_method":  "get"
         }
         link = rzp_client.payment_link.create(data)
         return link.get("short_url", "")
     except Exception as e:
         print(f"Razorpay error: {e}")
         return ""
+
 
 # ---- SEND FUNCTIONS ----
 def send_message(to, message):
@@ -133,13 +275,14 @@ def send_cta_button(to, body, button_text, url_link):
             "type": "cta_url",
             "body": {"text": body},
             "action": {
-                "name": "cta_url",
+                "name":       "cta_url",
                 "parameters": {"display_text": button_text, "url": url_link}
             }
         }
     }
     r = requests.post(url, headers=headers, json=data)
     print(f"send_cta: {r.status_code}")
+
 
 # ---- MESSAGE TEMPLATES ----
 def send_greeting(to):
@@ -190,6 +333,10 @@ def send_customer_type(to):
     )
 
 def send_retail_confirmation(to, session):
+    # 1. Create Shopify order
+    shopify_order_id, shopify_order_no = shopify_create_order({**session, "wa_number": to})
+
+    # 2. Generate internal order ID
     order_id  = generate_order_id()
     name      = session.get("name", "")
     main_cat  = session.get("main_title", "")
@@ -201,9 +348,13 @@ def send_retail_confirmation(to, session):
     cart      = session.get("cart_items", [])
     cart_text = ", ".join(cart) if cart else "-"
 
+    # 3. Shopify order number in message if available
+    shopify_ref = f"\n*Shopify Order:* #{shopify_order_no}" if shopify_order_no else ""
+
     msg = (
         "Thank you for choosing *A Jewel Studio*.\n\n"
         "Aapki order request successfully receive ho chuki hai.\n\n"
+        f"*Order ID:* #{order_id}{shopify_ref}\n\n"
         "Hamari team jald hi aapse contact karegi taaki "
         "following details confirm ki ja sake:\n\n"
         "• Design Selection\n"
@@ -215,10 +366,12 @@ def send_retail_confirmation(to, session):
     )
     send_message(to, msg)
 
+    # 4. Save to Google Sheet
     now_str = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
     save_to_sheet([
         now_str, order_id, "Retail", name, to, phone, email,
-        "", "", address, city, main_cat, sub_cat, cart_text, "New"
+        "", "", address, city, main_cat, sub_cat, cart_text,
+        "New", shopify_order_no
     ])
 
 def send_b2b_payment(to, session):
@@ -244,7 +397,7 @@ def send_b2b_payment(to, session):
 
     save_to_sheet([
         now_str, order_id, "B2B", name, to, phone, email,
-        company, gst, address, city, main_cat, sub_cat, cart_text, "Payment Pending"
+        company, gst, address, city, main_cat, sub_cat, cart_text, "Payment Pending", ""
     ])
 
     pay_link = create_razorpay_link(amount, order_id, name, phone)
@@ -264,7 +417,6 @@ def send_b2b_payment(to, session):
 def send_b2b_success(to, order_id, amount):
     now      = datetime.now()
     date_str = now.strftime("%d/%m/%Y")
-
     msg = (
         "Payment Successfully Received.\n\n"
         "Thank you for doing business with *A Jewel Studio*.\n\n"
@@ -278,14 +430,12 @@ def send_b2b_success(to, order_id, amount):
         "If you require any assistance, please feel free to contact us."
     )
     send_message(to, msg)
-
     send_cta_button(
         to,
         "Your digital files are ready.\nKindly click below to download.",
         "Download Now",
         SHOPIFY_DOWNLOADS
     )
-
     update_sheet_status(order_id, "Paid")
 
 def send_b2b_failed(to, order_id, pay_link):
@@ -299,8 +449,10 @@ def send_b2b_failed(to, order_id, pay_link):
     )
     update_sheet_status(order_id, "Payment Failed")
 
+
 # ---- SESSION STORE ----
 user_sessions = {}
+
 
 # ---- FLASK ROUTES ----
 @app.route("/webhook", methods=["GET"])
@@ -331,8 +483,18 @@ def webhook():
             text = msg["text"]["body"].strip()
 
             if text.lower() in ["hi", "hello", "hii", "hey", "start", "namaste", "menu"]:
-                user_sessions[from_number] = {"step": "greeted"}
-                send_greeting(from_number)
+                # ✅ Check Shopify — new or existing customer?
+                is_existing = shopify_customer_exists(from_number)
+                if is_existing:
+                    user_sessions[from_number] = {"step": "catalog_sent", "is_existing": True}
+                    send_message(from_number,
+                        "Welcome back to *A Jewel Studio*! 😊\n\n"
+                        "Aapka swagat hai. Apna pasandida collection explore karein."
+                    )
+                    send_catalog(from_number)
+                else:
+                    user_sessions[from_number] = {"step": "greeted", "is_existing": False}
+                    send_greeting(from_number)
 
             elif session.get("step") == "waiting_name":
                 user_sessions[from_number]["name"] = text
@@ -382,7 +544,7 @@ def webhook():
             else:
                 send_message(from_number, "Namaste! Type 'Hi' to access the menu.")
 
-        # ---- ORDER (Send to business) ----
+        # ---- ORDER (Send to business / Cart) ----
         elif msg_type == "order":
             order_data = msg.get("order", {})
             items      = order_data.get("product_items", [])
@@ -395,12 +557,16 @@ def webhook():
             existing               = user_sessions.get(from_number, {})
             existing["cart_items"] = item_list
 
-            if is_existing_customer(from_number):
+            # Check Shopify for existing customer
+            is_existing = shopify_customer_exists(from_number)
+            if is_existing:
                 existing["step"]           = "customer_type"
+                existing["is_existing"]    = True
                 user_sessions[from_number] = existing
                 send_customer_type(from_number)
             else:
                 existing["step"]           = "waiting_registration"
+                existing["is_existing"]    = False
                 user_sessions[from_number] = existing
                 send_registration(from_number)
 
@@ -412,11 +578,12 @@ def webhook():
                 button_id = interactive["button_reply"]["id"]
 
                 if button_id == "menu":
-                    if is_existing_customer(from_number):
-                        user_sessions[from_number] = {"step": "catalog_sent"}
+                    is_existing = shopify_customer_exists(from_number)
+                    if is_existing:
+                        user_sessions[from_number] = {"step": "catalog_sent", "is_existing": True}
                         send_catalog(from_number)
                     else:
-                        user_sessions[from_number] = {"step": "waiting_registration"}
+                        user_sessions[from_number] = {"step": "waiting_registration", "is_existing": False}
                         send_registration(from_number)
 
                 elif button_id in ["retail", "b2b"]:
@@ -430,14 +597,15 @@ def webhook():
 
     return jsonify({"status": "ok"}), 200
 
+
 # ---- RAZORPAY PAYMENT CALLBACK ----
 @app.route("/payment-callback", methods=["GET"])
 def payment_callback():
     try:
-        rzp_payment_id     = request.args.get("razorpay_payment_id", "")
-        rzp_payment_link   = request.args.get("razorpay_payment_link_id", "")
-        rzp_signature      = request.args.get("razorpay_signature", "")
-        rzp_status         = request.args.get("razorpay_payment_link_status", "")
+        rzp_payment_id   = request.args.get("razorpay_payment_id", "")
+        rzp_payment_link = request.args.get("razorpay_payment_link_id", "")
+        rzp_signature    = request.args.get("razorpay_signature", "")
+        rzp_status       = request.args.get("razorpay_payment_link_status", "")
 
         for number, session in list(user_sessions.items()):
             order_id = session.get("order_id", "")
@@ -460,6 +628,7 @@ def payment_callback():
         print(f"Callback error: {e}")
 
     return "OK", 200
+
 
 # ---- RAZORPAY WEBHOOK ----
 @app.route("/razorpay-webhook", methods=["POST"])
@@ -490,6 +659,7 @@ def razorpay_webhook():
         print(f"RZP Webhook error: {e}")
 
     return "OK", 200
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
