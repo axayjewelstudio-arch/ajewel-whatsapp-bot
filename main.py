@@ -11,20 +11,21 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-VERIFY_TOKEN      = os.environ.get("VERIFY_TOKEN", "ajewel2024")
-ACCESS_TOKEN      = os.environ.get("ACCESS_TOKEN", "")
+# -------------------- CONFIG --------------------
+VERIFY_TOKEN      = os.getenv("VERIFY_TOKEN", "ajewel2024")
+ACCESS_TOKEN      = os.getenv("ACCESS_TOKEN", "")
 PHONE_NUMBER_ID   = "928999850307609"
 SHEET_ID          = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
 SHOPIFY_REGISTER  = "https://a-jewel-studio-3.myshopify.com/account/register"
 SHOPIFY_DOWNLOADS = "https://a-jewel-studio-3.myshopify.com/a/downloads"
 CATALOG_LINK      = "https://wa.me/c/918141356990"
-RZP_KEY_ID        = os.environ.get("RAZORPAY_KEY_ID", "")
-RZP_KEY_SECRET    = os.environ.get("RAZORPAY_KEY_SECRET", "")
-GEMINI_API_KEY    = os.environ.get("GEMINI_API_KEY", "")
+RZP_KEY_ID        = os.getenv("RAZORPAY_KEY_ID", "")
+RZP_KEY_SECRET    = os.getenv("RAZORPAY_KEY_SECRET", "")
+GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY", "")
 
 rzp_client = razorpay.Client(auth=(RZP_KEY_ID, RZP_KEY_SECRET))
 
-# ---- GEMINI AI ----
+# -------------------- PROMPTS --------------------
 SYSTEM_PROMPTS = {
     "greeting": (
         "Tu A Jewel Studio ka professional WhatsApp assistant hai. Tera naam Akshay hai. "
@@ -75,36 +76,43 @@ SYSTEM_PROMPTS = {
 }
 
 def gemini_reply(user_message, context="general", customer_name=""):
+    """
+    Calls Gemini API with the appropriate system prompt.
+    Returns generated text or None on error.
+    """
     try:
         prompt = SYSTEM_PROMPTS.get(context, SYSTEM_PROMPTS["general"])
         if customer_name:
             prompt += f" Customer ka naam: {customer_name}."
 
-        url  = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         body = {
             "contents": [{"parts": [{"text": f"{prompt}\n\nCustomer: {user_message}"}]}],
             "generationConfig": {"temperature": 0.7, "maxOutputTokens": 200}
         }
-        r      = requests.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=10)
+        r = requests.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=10)
         result = r.json()
         return result["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         print(f"Gemini error: {e}")
         return None
 
-# ---- GOOGLE SHEETS ----
+# -------------------- GOOGLE SHEETS --------------------
 def get_sheet():
+    """Authorize with service‑account creds and return first sheet."""
     try:
-        creds_dict = json.loads(os.environ.get("GOOGLE_CREDENTIALS", ""))
-        scopes     = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds      = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client     = gspread.authorize(creds)
+        creds_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS", ""))
+        scopes = ["https://www.googleapis.com/auth/spreadsheets",
+                  "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID).sheet1
     except Exception as e:
         print(f"Sheet error: {e}")
         return None
 
 def save_to_sheet(row_data):
+    """Append a row to the google sheet."""
     try:
         sheet = get_sheet()
         if sheet:
@@ -113,6 +121,7 @@ def save_to_sheet(row_data):
         print(f"Save error: {e}")
 
 def update_sheet_status(order_id, status):
+    """Update the status column (15) for a given order_id."""
     try:
         sheet = get_sheet()
         if sheet:
@@ -122,14 +131,19 @@ def update_sheet_status(order_id, status):
     except Exception as e:
         print(f"Update error: {e}")
 
-# ---- HELPERS ----
+# -------------------- HELPERS --------------------
 def generate_order_id():
     return "AJS" + datetime.now().strftime("%d%m%y%H%M%S")
 
 def create_razorpay_link(amount_inr, order_id, name, phone):
+    """
+    Creates a Razorpay payment link for B2B orders.
+    Returns the short URL or empty string on failure.
+    """
     try:
         data = {
-            "amount": int(amount_inr * 100), "currency": "INR",
+            "amount": int(amount_inr * 100),
+            "currency": "INR",
             "accept_partial": False,
             "description": f"A Jewel Studio Order {order_id}",
             "customer": {"name": name, "contact": phone},
@@ -144,102 +158,139 @@ def create_razorpay_link(amount_inr, order_id, name, phone):
         print(f"Razorpay error: {e}")
         return ""
 
-# ---- SEND FUNCTIONS ----
+# -------------------- SEND FUNCTIONS --------------------
 def send_message(to, message):
-    url  = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     hdrs = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    requests.post(url, headers=hdrs, json={"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}})
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": message}
+    }
+    requests.post(url, headers=hdrs, json=payload)
 
 def send_button_message(to, body, buttons):
-    url  = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     hdrs = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    requests.post(url, headers=hdrs, json={
-        "messaging_product": "whatsapp", "to": to, "type": "interactive",
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
         "interactive": {
-            "type": "button", "body": {"text": body},
-            "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["title"]}} for b in buttons]}
+            "type": "button",
+            "body": {"text": body},
+            "action": {"buttons": [
+                {"type": "reply", "reply": {"id": b["id"], "title": b["title"]}}
+                for b in buttons
+            ]}
         }
-    })
+    }
+    requests.post(url, headers=hdrs, json=payload)
 
 def send_cta_button(to, body, button_text, url_link):
-    url  = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     hdrs = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    requests.post(url, headers=hdrs, json={
-        "messaging_product": "whatsapp", "to": to, "type": "interactive",
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
         "interactive": {
-            "type": "cta_url", "body": {"text": body},
+            "type": "cta_url",
+            "body": {"text": body},
             "action": {"name": "cta_url", "parameters": {"display_text": button_text, "url": url_link}}
         }
-    })
+    }
+    requests.post(url, headers=hdrs, json=payload)
 
-# ---- FLOW ----
+# -------------------- HEALTH CHECK --------------------
+@app.route("/")
+def health():
+    """Render ki health check ke liye simple endpoint."""
+    return "OK", 200
+
+# -------------------- FLOW HELPERS --------------------
 user_sessions = {}
 
 def do_greeting(to):
-    name   = user_sessions.get(to, {}).get("name", "")
-    ai_msg = gemini_reply("Customer ne Hi/Hello bola.", "greeting", name) or \
-             "Welcome to *A Jewel Studio*\nWhere Creativity Meets Craftsmanship.\n\nMenu select karein."
+    name = user_sessions.get(to, {}).get("name", "")
+    ai_msg = gemini_reply("Customer ne Hi/Hello bola.", "greeting", name) \
+             or "Welcome to *A Jewel Studio*\nWhere Creativity Meets Craftsmanship.\n\nMenu select karein."
     user_sessions[to] = {"step": "greeted"}
     send_button_message(to, ai_msg, [{"id": "menu", "title": "Menu"}])
 
 def do_registration(to):
-    ai_msg = gemini_reply("Naya customer.", "registration") or \
-             "Order ke liye Shopify account banana zaroori hai.\nRegistration ke baad 'Hi' type karein."
+    ai_msg = gemini_reply("Naya customer.", "registration") \
+             or "Order ke liye Shopify account banana zaroori hai.\nRegistration ke baad 'Hi' type karein."
     send_cta_button(to, ai_msg, "Sign Up", SHOPIFY_REGISTER)
 
 def do_catalog(to):
-    ai_msg = gemini_reply("Customer catalog dekhna chahta hai.", "catalog") or \
-             "Kindly explore our Exclusive Collection."
+    ai_msg = gemini_reply("Customer catalog dekhna chahta hai.", "catalog") \
+             or "Kindly explore our Exclusive Collection."
     send_cta_button(to, ai_msg, "View Catalog", CATALOG_LINK)
 
 def do_customer_type(to):
-    ai_msg = gemini_reply("Customer type select karna hai.", "customer_type") or \
-             "Order process ke liye apna *Customer Type* select karein."
+    ai_msg = gemini_reply("Customer type select karna hai.", "customer_type") \
+             or "Order process ke liye apna *Customer Type* select karein."
     send_button_message(to, ai_msg, [
         {"id": "retail", "title": "Retail Customer"},
         {"id": "b2b",    "title": "B2B / Wholesale"}
     ])
 
 def do_retail_confirmation(to, session):
-    order_id  = generate_order_id()
-    name      = session.get("name", "")
-    phone     = session.get("contact", "")
-    email     = session.get("email", "")
-    address   = session.get("address", "")
-    city      = session.get("city", "")
-    main_cat  = session.get("main_title", "")
-    sub_cat   = session.get("sub_title", "")
+    order_id = generate_order_id()
+    name    = session.get("name", "")
+    phone   = session.get("contact", "")
+    email   = session.get("email", "")
+    address = session.get("address", "")
+    city    = session.get("city", "")
+    main_cat = session.get("main_title", "")
+    sub_cat = session.get("sub_title", "")
     cart_text = ", ".join(session.get("cart_items", [])) or "-"
 
-    ai_msg = gemini_reply(f"Retail order placed by {name}.", "retail_confirm", name) or \
-             f"Thank you for choosing *A Jewel Studio*, {name} ji.\nHamari team jald hi contact karegi."
+    ai_msg = gemini_reply(f"Retail order placed by {name}.", "retail_confirm", name) \
+             or f"Thank you for choosing *A Jewel Studio*, {name} ji.\nHamari team jald hi contact karegi."
     send_message(to, ai_msg)
 
-    save_to_sheet([datetime.now().strftime("%d-%m-%Y %H:%M:%S"), order_id, "Retail",
-                   name, to, phone, email, "", "", address, city, main_cat, sub_cat, cart_text, "New"])
+    save_to_sheet([
+        datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
+        order_id, "Retail",
+        name, to, phone, email, "", "", address, city,
+        main_cat, sub_cat, cart_text, "New"
+    ])
 
 def do_b2b_payment(to, session):
-    order_id  = generate_order_id()
-    name      = session.get("name", "")
-    phone     = session.get("contact", "")
-    amount    = 500
-    email     = session.get("email", "")
-    company   = session.get("company", "")
-    gst       = session.get("gst", "")
-    address   = session.get("address", "")
-    city      = session.get("city", "")
-    main_cat  = session.get("main_title", "")
-    sub_cat   = session.get("sub_title", "")
+    order_id = generate_order_id()
+    name    = session.get("name", "")
+    phone   = session.get("contact", "")
+    amount  = 500            # INR, hard‑coded for demo – replace as needed
+    email   = session.get("email", "")
+    company = session.get("company", "")
+    gst     = session.get("gst", "")
+
+    # Store order details in session so callback can refer to them
+    user_sessions[to].update({
+        "order_id": order_id,
+        "step": "payment_pending",
+        "amount": amount,
+        "name": name,
+        "contact": phone
+    })
+
+    # Save row with status = "Payment Pending"
     cart_text = ", ".join(session.get("cart_items", [])) or "-"
-
-    user_sessions[to].update({"order_id": order_id, "step": "payment_pending", "amount": amount})
-
-    save_to_sheet([datetime.now().strftime("%d-%m-%Y %H:%M:%S"), order_id, "B2B",
-                   name, to, phone, email, company, gst, address, city, main_cat, sub_cat, cart_text, "Payment Pending"])
+    save_to_sheet([
+        datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
+        order_id, "B2B",
+        name, to, phone, email, company, gst,
+        session.get("address", ""), session.get("city", ""),
+        session.get("main_title", ""), session.get("sub_title", ""),
+        cart_text, "Payment Pending"
+    ])
 
     pay_link = create_razorpay_link(amount, order_id, name, phone)
-    ai_msg   = gemini_reply(f"Order {order_id} payment ready.", "b2b_payment", name) or \
-               f"Your Order *#{order_id}* is ready.\nKindly proceed to payment."
+    ai_msg = gemini_reply(f"Order {order_id} payment ready.", "b2b_payment", name) \
+             or f"Your Order *#{order_id}* is ready.\nKindly proceed to payment."
 
     if pay_link:
         send_cta_button(to, ai_msg, "Proceed to Payment", pay_link)
@@ -247,26 +298,35 @@ def do_b2b_payment(to, session):
         send_message(to, "Payment link issue. Contact +91 76000 56655.")
 
 def do_b2b_success(to, order_id, amount):
-    name     = user_sessions.get(to, {}).get("name", "")
+    name = user_sessions.get(to, {}).get("name", "")
     date_str = datetime.now().strftime("%d/%m/%Y")
-    ai_msg   = gemini_reply(f"Payment successful. Order {order_id}.", "b2b_success", name) or \
-               "Payment Successfully Received.\nThank you for doing business with *A Jewel Studio*."
-    full_msg = ai_msg + f"\n\n----------------------------------\n*Order ID:* #{order_id}\n*Amount:* Rs.{amount}\n*Date:* {date_str}\n----------------------------------"
+    ai_msg = gemini_reply(f"Payment successful. Order {order_id}.", "b2b_success", name) \
+              or "Payment Successfully Received.\nThank you for doing business with *A Jewel Studio*."
+    full_msg = (
+        f"{ai_msg}\n\n"
+        f"----------------------------------\n"
+        f"*Order ID:* #{order_id}\n"
+        f"*Amount:* Rs.{amount}\n"
+        f"*Date:* {date_str}\n"
+        f"----------------------------------"
+    )
     send_message(to, full_msg)
     send_cta_button(to, "Your digital files are ready. Click below to download.", "Download Now", SHOPIFY_DOWNLOADS)
     update_sheet_status(order_id, "Paid")
 
 def do_b2b_failed(to, order_id, pay_link):
-    name   = user_sessions.get(to, {}).get("name", "")
-    ai_msg = gemini_reply("Payment fail hui.", "b2b_failed", name) or \
-             "Your payment was not completed.\nKindly retry using the button below."
+    name = user_sessions.get(to, {}).get("name", "")
+    ai_msg = gemini_reply("Payment fail hui.", "b2b_failed", name) \
+             or "Your payment was not completed.\nKindly retry using the button below."
     send_cta_button(to, ai_msg, "Retry Payment", pay_link)
     update_sheet_status(order_id, "Payment Failed")
 
-# ---- WEBHOOK ----
+# -------------------- WEBHOOKS --------------------
 @app.route("/webhook", methods=["GET"])
 def verify():
-    mode, token, challenge = request.args.get("hub.mode"), request.args.get("hub.verify_token"), request.args.get("hub.challenge")
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
     if mode == "subscribe" and token == VERIFY_TOKEN:
         return challenge, 200
     return "Forbidden", 403
@@ -280,11 +340,12 @@ def webhook():
         if "messages" not in entry:
             return jsonify({"status": "ok"}), 200
 
-        msg         = entry["messages"][0]
+        msg = entry["messages"][0]
         from_number = msg["from"]
-        msg_type    = msg["type"]
-        session     = user_sessions.get(from_number, {})
+        msg_type = msg["type"]
+        session = user_sessions.get(from_number, {})
 
+        # -------------------- TEXT MESSAGES --------------------
         if msg_type == "text":
             text = msg["text"]["body"].strip()
 
@@ -293,13 +354,13 @@ def webhook():
 
             elif session.get("step") == "waiting_name":
                 user_sessions[from_number]["name"] = text
-                user_sessions[from_number]["step"]  = "waiting_number"
+                user_sessions[from_number]["step"] = "waiting_number"
                 ai = gemini_reply("", "collect_phone") or "Kindly enter your *contact number* (10 digits):"
                 send_message(from_number, ai)
 
             elif session.get("step") == "waiting_number":
                 user_sessions[from_number]["contact"] = text
-                user_sessions[from_number]["step"]    = "waiting_email"
+                user_sessions[from_number]["step"] = "waiting_email"
                 ai = gemini_reply("", "collect_email") or "Kindly enter your *email address*:"
                 send_message(from_number, ai)
 
@@ -315,44 +376,49 @@ def webhook():
 
             elif session.get("step") == "waiting_company":
                 user_sessions[from_number]["company"] = text
-                user_sessions[from_number]["step"]    = "waiting_gst"
+                user_sessions[from_number]["step"] = "waiting_gst"
                 ai = gemini_reply("", "collect_gst") or "Kindly enter your *GST Number* (NA if not applicable):"
                 send_message(from_number, ai)
 
             elif session.get("step") == "waiting_gst":
-                user_sessions[from_number]["gst"]  = text
+                user_sessions[from_number]["gst"] = text
                 user_sessions[from_number]["step"] = "waiting_address"
                 ai = gemini_reply("", "collect_address") or "Kindly enter your *Business Address*:"
                 send_message(from_number, ai)
 
             elif session.get("step") == "waiting_address":
                 user_sessions[from_number]["address"] = text
-                user_sessions[from_number]["step"]    = "waiting_city"
+                user_sessions[from_number]["step"] = "waiting_city"
                 ai = gemini_reply("", "collect_city") or "Kindly enter your *City*:"
                 send_message(from_number, ai)
 
             elif session.get("step") == "waiting_city":
                 user_sessions[from_number]["city"] = text
                 final = dict(user_sessions.get(from_number, {}))
-                final["city"] = text
                 if final.get("customer_type") == "b2b":
                     do_b2b_payment(from_number, final)
                 else:
+                    # Retail flow – remove session after confirmation
                     user_sessions.pop(from_number, None)
                     do_retail_confirmation(from_number, final)
 
             else:
+                # fallback – let Gemini answer generically
                 ai = gemini_reply(text, "general") or "Namaste! Type 'Hi' to access the menu."
                 send_message(from_number, ai)
 
+        # -------------------- ORDER MESSAGES (Shopify) --------------------
         elif msg_type == "order":
             items = msg.get("order", {}).get("product_items", [])
             existing = user_sessions.get(from_number, {})
-            existing["cart_items"] = [f"{i.get('product_name','Product')} x{i.get('quantity',1)}" for i in items]
-            existing["step"]       = "customer_type"
+            existing["cart_items"] = [
+                f"{i.get('product_name','Product')} x{i.get('quantity',1)}" for i in items
+            ]
+            existing["step"] = "customer_type"
             user_sessions[from_number] = existing
             do_customer_type(from_number)
 
+        # -------------------- BUTTON CLICKS --------------------
         elif msg_type == "interactive":
             btn_id = msg["interactive"]["button_reply"]["id"]
             if btn_id == "menu":
@@ -361,51 +427,74 @@ def webhook():
                 do_catalog(from_number)
             elif btn_id in ["retail", "b2b"]:
                 user_sessions[from_number]["customer_type"] = btn_id
-                user_sessions[from_number]["step"]          = "waiting_name"
+                user_sessions[from_number]["step"] = "waiting_name"
                 ai = gemini_reply("", "collect_name") or "Kindly enter your *full name*:"
                 send_message(from_number, ai)
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Webhook error: {e}")
 
     return jsonify({"status": "ok"}), 200
 
+# -------------------- PAYMENT CALLBACK (GET) --------------------
 @app.route("/payment-callback", methods=["GET"])
 def payment_callback():
+    """
+    Razorpay payment‑link callback – GET request.
+    Verify signature and mark order paid / failed.
+    """
     try:
-        rzp_pid    = request.args.get("razorpay_payment_id", "")
-        rzp_plid   = request.args.get("razorpay_payment_link_id", "")
-        rzp_sig    = request.args.get("razorpay_signature", "")
+        rzp_pid  = request.args.get("razorpay_payment_id", "")
+        rzp_plid = request.args.get("razorpay_payment_link_id", "")
+        rzp_sig  = request.args.get("razorpay_signature", "")
         rzp_status = request.args.get("razorpay_payment_link_status", "")
 
         for number, sess in list(user_sessions.items()):
             order_id = sess.get("order_id", "")
             if sess.get("step") == "payment_pending" and order_id:
                 if rzp_status == "paid":
-                    gen_sig = hmac.new(RZP_KEY_SECRET.encode(), f"{rzp_plid}|{rzp_pid}".encode(), hashlib.sha256).hexdigest()
+                    # Verify the signature
+                    gen_sig = hmac.new(
+                        RZP_KEY_SECRET.encode(),
+                        f"{rzp_plid}|{rzp_pid}".encode(),
+                        hashlib.sha256
+                    ).hexdigest()
                     if gen_sig == rzp_sig:
                         do_b2b_success(number, order_id, sess.get("amount", 500))
                         user_sessions.pop(number, None)
                 else:
-                    new_link = create_razorpay_link(sess.get("amount", 500), order_id, sess.get("name", ""), sess.get("contact", ""))
+                    # Payment not successful – generate a new link & ask retry
+                    new_link = create_razorpay_link(
+                        sess.get("amount", 500),
+                        order_id,
+                        sess.get("name", ""),
+                        sess.get("contact", "")
+                    )
                     do_b2b_failed(number, order_id, new_link)
     except Exception as e:
         print(f"Callback error: {e}")
     return "OK", 200
 
+# -------------------- RAZORPAY WEBHOOK (POST) --------------------
 @app.route("/razorpay-webhook", methods=["POST"])
 def razorpay_webhook():
+    """
+    Razorpay (server‑to‑server) webhook – POST request.
+    Handles payment_link.paid events.
+    """
     try:
         payload = request.get_data()
-        sig     = request.headers.get("X-Razorpay-Signature", "")
+        sig = request.headers.get("X-Razorpay-Signature", "")
         gen_sig = hmac.new(RZP_KEY_SECRET.encode(), payload, hashlib.sha256).hexdigest()
         if gen_sig != sig:
             return "Invalid signature", 400
+
         event = request.get_json()
         if event.get("event") == "payment_link.paid":
-            notes    = event["payload"]["payment_link"]["entity"].get("notes", {})
+            entity = event["payload"]["payment_link"]["entity"]
+            notes = entity.get("notes", {})
             order_id = notes.get("order_id", "")
-            amount   = event["payload"]["payment_link"]["entity"].get("amount", 0) // 100
+            amount = entity.get("amount", 0) // 100   # paisa → INR
             for number, sess in list(user_sessions.items()):
                 if sess.get("order_id") == order_id:
                     do_b2b_success(number, order_id, amount)
@@ -415,5 +504,7 @@ def razorpay_webhook():
         print(f"RZP Webhook error: {e}")
     return "OK", 200
 
+# -------------------- LOCAL RUN (development) --------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+    # `PORT` will be set by Render; default 5000 for local testing.
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False)
