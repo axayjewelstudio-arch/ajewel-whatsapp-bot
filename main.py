@@ -4,7 +4,7 @@ def send_greeting(to):
     send_button_message(
         to,
         "Welcome to *A Jewel Studio*\n"
-        "Where Creativity Meets Craftsmanship.\n\n"
+        " \n\n"
         "Namaste,\n"
         "Main Akshay bol raha hoon.\n\n"
         "A Jewel Studio visit karne ke liye aapka dhanyavaad.\n\n"
