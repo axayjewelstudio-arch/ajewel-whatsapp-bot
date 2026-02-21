@@ -65,35 +65,7 @@ def get_shopify_token():
         return ""
 
 
-# ---- SHOPIFY — Check if customer exists by phone ----
-def shopify_customer_exists(whatsapp_number):
-    """
-    Returns True if a customer with this phone number exists in Shopify.
-    WhatsApp number format: 919876543210  → we search +919876543210
-    """
-    try:
-        token = get_shopify_token()
-        if not token:
-            return False
-        phone = "+" + whatsapp_number  # WhatsApp sends without +
-        url   = (
-            f"https://{SHOPIFY_STORE}/admin/api/{SHOPIFY_API_VERSION}"
-            f"/customers/search.json?query=phone:{phone}&limit=1"
-        )
-        resp  = requests.get(
-            url,
-            headers={"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
-        )
-        if resp.ok:
-            customers = resp.json().get("customers", [])
-            print(f"Shopify customer check: {phone} → {len(customers)} found")
-            return len(customers) > 0
-        else:
-            print(f"Shopify search error: {resp.status_code} {resp.text}")
-            return False
-    except Exception as e:
-        print(f"shopify_customer_exists error: {e}")
-        return False
+
 
 
 # ---- SHOPIFY — Create Order for Retail Customer ----
@@ -483,18 +455,8 @@ def webhook():
             text = msg["text"]["body"].strip()
 
             if text.lower() in ["hi", "hello", "hii", "hey", "start", "namaste", "menu"]:
-                # ✅ Check Shopify — new or existing customer?
-                is_existing = shopify_customer_exists(from_number)
-                if is_existing:
-                    user_sessions[from_number] = {"step": "catalog_sent", "is_existing": True}
-                    send_message(from_number,
-                        "Welcome back to *A Jewel Studio*! 😊\n\n"
-                        "Aapka swagat hai. Apna pasandida collection explore karein."
-                    )
-                    send_catalog(from_number)
-                else:
-                    user_sessions[from_number] = {"step": "greeted", "is_existing": False}
-                    send_greeting(from_number)
+                user_sessions[from_number] = {"step": "greeted"}
+                send_greeting(from_number)
 
             elif session.get("step") == "waiting_name":
                 user_sessions[from_number]["name"] = text
@@ -558,17 +520,9 @@ def webhook():
             existing["cart_items"] = item_list
 
             # Check Shopify for existing customer
-            is_existing = shopify_customer_exists(from_number)
-            if is_existing:
-                existing["step"]           = "customer_type"
-                existing["is_existing"]    = True
+            existing["step"]           = "customer_type"
                 user_sessions[from_number] = existing
                 send_customer_type(from_number)
-            else:
-                existing["step"]           = "waiting_registration"
-                existing["is_existing"]    = False
-                user_sessions[from_number] = existing
-                send_registration(from_number)
 
         # ---- INTERACTIVE ----
         elif msg_type == "interactive":
@@ -578,13 +532,8 @@ def webhook():
                 button_id = interactive["button_reply"]["id"]
 
                 if button_id == "menu":
-                    is_existing = shopify_customer_exists(from_number)
-                    if is_existing:
-                        user_sessions[from_number] = {"step": "catalog_sent", "is_existing": True}
-                        send_catalog(from_number)
-                    else:
-                        user_sessions[from_number] = {"step": "waiting_registration", "is_existing": False}
-                        send_registration(from_number)
+                    user_sessions[from_number] = {"step": "catalog_sent"}
+                    send_catalog(from_number)
 
                 elif button_id in ["retail", "b2b"]:
                     ctype = "retail" if button_id == "retail" else "b2b"
