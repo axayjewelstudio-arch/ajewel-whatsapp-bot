@@ -15,8 +15,8 @@ PHONE_NUMBER_ID = "928999850307609"
 SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
-
 WHATSAPP_CATALOG = "https://wa.me/c/918141356990"
+SHOPIFY_REGISTER = "https://a-jewel-studio-3.myshopify.com/account/register"
 
 # ---- GOOGLE SHEETS ----
 def get_sheet():
@@ -35,12 +35,23 @@ def get_sheet():
         print(f"Sheet error: {e}")
         return None
 
+def is_existing_customer(phone):
+    try:
+        sheet = get_sheet()
+        if sheet:
+            col = sheet.col_values(5)  # Column E = WhatsApp Number
+            return phone in col
+        return False
+    except Exception as e:
+        print(f"Customer check error: {e}")
+        return False
+
 def save_to_sheet(row_data):
     try:
         sheet = get_sheet()
         if sheet:
             sheet.append_row(row_data)
-            print("Order saved to sheet!")
+            print("Order saved!")
     except Exception as e:
         print(f"Save error: {e}")
 
@@ -51,35 +62,39 @@ def update_sheet_status(order_id, status):
             cell = sheet.find(order_id)
             if cell:
                 sheet.update_cell(cell.row, 15, status)
-                print(f"Status updated: {order_id} -> {status}")
+                print(f"Status: {order_id} -> {status}")
     except Exception as e:
-        print(f"Status update error: {e}")
+        print(f"Status error: {e}")
+
+def get_customer_phone_by_order(order_id):
+    try:
+        sheet = get_sheet()
+        if sheet:
+            cell = sheet.find(order_id)
+            if cell:
+                return sheet.cell(cell.row, 5).value  # Column E = WhatsApp
+        return None
+    except Exception as e:
+        print(f"Phone lookup error: {e}")
+        return None
 
 def generate_order_id():
-    now = datetime.now()
-    return f"AJS{now.strftime('%d%m%y%H%M%S')}"
+    return f"AJS{datetime.now().strftime('%d%m%y%H%M%S')}"
 
 # ---- RAZORPAY ----
 def create_payment_link(order_id, amount, name, phone, email, description):
     try:
         client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
         data = {
-            "amount": int(amount * 100),  # paise mein
+            "amount": int(amount * 100),
             "currency": "INR",
             "accept_partial": False,
             "description": description,
             "reference_id": order_id,
-            "customer": {
-                "name": name,
-                "contact": phone,
-                "email": email
-            },
-            "notify": {
-                "sms": False,
-                "email": False
-            },
+            "customer": {"name": name, "contact": phone, "email": email},
+            "notify": {"sms": False, "email": False},
             "reminder_enable": False,
-            "callback_url": f"https://ajewel-whatsapp-bot.onrender.com/payment-callback",
+            "callback_url": "https://ajewel-whatsapp-bot.onrender.com/payment-callback",
             "callback_method": "get"
         }
         result = client.payment_link.create(data)
@@ -91,12 +106,35 @@ def create_payment_link(order_id, amount, name, phone, email, description):
 user_sessions = {}
 
 # ---- SEND FUNCTIONS ----
+
 def send_message(to, message):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
     data = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
     r = requests.post(url, headers=headers, json=data)
-    print(f"Message: {r.status_code} {r.text}")
+    print(f"Msg: {r.status_code} {r.text}")
+
+def send_cta_button(to, body_text, button_text, button_url):
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": body_text},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": button_text,
+                    "url": button_url
+                }
+            }
+        }
+    }
+    r = requests.post(url, headers=headers, json=data)
+    print(f"CTA: {r.status_code} {r.text}")
 
 def send_main_categories(to):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
@@ -130,7 +168,6 @@ def send_main_categories(to):
 def send_sub_categories(to, main_cat):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-
     sub_map = {
         "face":  [
             {"id": "face_ear",  "title": "Ear Jewellery",        "description": "Studs, Jhumka, Chandbali, Hoops"},
@@ -170,7 +207,6 @@ def send_sub_categories(to, main_cat):
             {"id": "baby_hair",    "title": "Baby Hair Accessories",  "description": "Clips, Pins, Bands"},
         ],
     }
-
     rows = sub_map.get(main_cat, [])
     data = {
         "messaging_product": "whatsapp", "to": to, "type": "interactive",
@@ -231,7 +267,46 @@ def webhook():
         msg_type = msg["type"]
         session = user_sessions.get(from_number, {})
 
-        if msg_type == "text":
+        # ---- ORDER MESSAGE (Send to business) ----
+        if msg_type == "order":
+            order_data = msg.get("order", {})
+            items = order_data.get("product_items", [])
+            item_list = []
+            for item in items:
+                item_list.append(
+                    f"{item.get('product_name','Product')} x{item.get('quantity',1)}"
+                )
+
+            user_sessions[from_number] = {
+                "step": "check_customer",
+                "cart_items": item_list
+            }
+
+            # Step 5 — Google Sheet check karo
+            existing = is_existing_customer(from_number)
+
+            if existing:
+                # Step 6b — Purana customer — Retail/B2B buttons
+                user_sessions[from_number]["step"] = "waiting_customer_type"
+                send_customer_type(from_number)
+            else:
+                # Step 6a — Naya customer — Register CTA button
+                user_sessions[from_number]["step"] = "waiting_register"
+                send_message(from_number,
+                    "Aapka order receive hua!\n\n"
+                    "Pehli baar order kar rahe hain? "
+                    "Pehle apna account banayein - "
+                    "isse aapko future mein easy ordering milegi."
+                )
+                send_cta_button(
+                    to=from_number,
+                    body_text="Account banane ke baad wapas aayein aur 'Hi' likhein.",
+                    button_text="Register Karein",
+                    button_url=SHOPIFY_REGISTER
+                )
+
+        # ---- TEXT MESSAGES ----
+        elif msg_type == "text":
             text = msg["text"]["body"].strip()
             text_lower = text.lower()
             step = session.get("step", "")
@@ -239,6 +314,11 @@ def webhook():
             if text_lower in ["hi", "hello", "hii", "hey", "start", "menu"]:
                 user_sessions[from_number] = {}
                 send_main_categories(from_number)
+
+            elif step == "waiting_register":
+                # Register ke baad Hi likhega to retail/b2b dikhao
+                user_sessions[from_number]["step"] = "waiting_customer_type"
+                send_customer_type(from_number)
 
             elif step == "waiting_design":
                 user_sessions[from_number]["design_code"] = text.upper()
@@ -274,8 +354,8 @@ def webhook():
                 user_sessions[from_number]["city"] = text
                 s = user_sessions[from_number]
                 order_id = generate_order_id()
-                user_sessions[from_number]["order_id"] = order_id
 
+                # Sheet mein save
                 save_to_sheet([
                     datetime.now().strftime("%d-%m-%Y %H:%M"),
                     order_id,
@@ -291,52 +371,27 @@ def webhook():
                     s.get("main_cat", ""),
                     s.get("sub_cat", ""),
                     s.get("design_code", ""),
-                    "Pending Payment"
+                    "Pending"
                 ])
 
-                # Razorpay payment link banao
-                payment_link = create_payment_link(
-                    order_id=order_id,
-                    amount=299,  # Default amount — baad mein dynamic kar sakte hain
-                    name=s.get("name", ""),
-                    phone=s.get("phone", from_number),
-                    email=s.get("email", ""),
-                    description=f"A Jewel Studio - {s.get('design_code','')} - 3D Design File"
+                # Step 8 Retail — Confirmation + team contact
+                send_message(from_number,
+                    f"Namaste {s.get('name', '')} ji,\n\n"
+                    f"A Jewel Studio mein order dene ke liye bahut bahut shukriya!\n\n"
+                    f"Aapka order hamare team ko mil gaya hai.\n\n"
+                    f"--- Order Details ---\n"
+                    f"Order ID     : {order_id}\n"
+                    f"Category     : {s.get('main_cat','').title()}\n"
+                    f"Sub Category : {s.get('sub_cat','').replace('_',' ').title()}\n"
+                    f"Design Code  : {s.get('design_code','')}\n"
+                    f"Customer Type: Retail\n\n"
+                    f"Hamari team aapko jaldi contact karegi!\n\n"
+                    f"Koi bhi sawaal ho:\n"
+                    f"Call : +91 76000 56655\n"
+                    f"Email: ajewelstudio@gmail.com\n\n"
+                    f"Aapka vishwas humare liye bahut mayne rakhta hai.\n"
+                    f"Dhanyawad!\nTeam A Jewel Studio"
                 )
-
-                if payment_link:
-                    send_message(from_number,
-                        f"Namaste {s.get('name', '')} ji,\n\n"
-                        f"Aapka order receive ho gaya hai!\n\n"
-                        f"--- Order Details ---\n"
-                        f"Order ID     : {order_id}\n"
-                        f"Design Code  : {s.get('design_code','')}\n"
-                        f"Amount       : Rs. 299\n\n"
-                        f"Payment karne ke liye neeche diye link par click karein:\n"
-                        f"{payment_link}\n\n"
-                        f"Payment hone ke baad aapko design file ka download link mil jaayega.\n\n"
-                        f"Koi bhi sawaal ho:\n"
-                        f"WhatsApp / Call : +91 76000 56655\n"
-                        f"Email           : ajewelstudio@gmail.com\n\n"
-                        f"Dhanyawad!\nTeam A Jewel Studio"
-                    )
-                else:
-                    # Payment link nahi bana toh manual review
-                    send_message(from_number,
-                        f"Namaste {s.get('name', '')} ji,\n\n"
-                        f"Aapka order hamare team ko mil gaya hai!\n\n"
-                        f"--- Order Details ---\n"
-                        f"Order ID     : {order_id}\n"
-                        f"Design Code  : {s.get('design_code','')}\n"
-                        f"Customer Type: Retail\n\n"
-                        f"Hamari team thodi der mein aapse contact karegi - "
-                        f"pricing, payment aur delivery ke baare mein.\n\n"
-                        f"Koi bhi sawaal ho:\n"
-                        f"WhatsApp / Call : +91 76000 56655\n"
-                        f"Email           : ajewelstudio@gmail.com\n\n"
-                        f"Aapka vishwas humare liye bahut mayne rakhta hai.\n"
-                        f"Dhanyawad!\nTeam A Jewel Studio"
-                    )
                 user_sessions.pop(from_number, None)
 
             # ---- B2B FLOW ----
@@ -378,7 +433,7 @@ def webhook():
                     "Pending"
                 ])
 
-                # B2B ke liye manual contact — file aur pricing discuss hogi
+                # Step 8 B2B — Confirmation
                 send_message(from_number,
                     f"Namaste {s.get('name', '')} ji,\n\n"
                     f"A Jewel Studio ke saath B2B inquiry karne ke liye bahut bahut shukriya!\n\n"
@@ -386,13 +441,15 @@ def webhook():
                     f"Order ID      : {order_id}\n"
                     f"Company       : {s.get('company','')}\n"
                     f"GST Number    : {s.get('gst','')}\n"
+                    f"Category      : {s.get('main_cat','').title()}\n"
+                    f"Sub Category  : {s.get('sub_cat','').replace('_',' ').title()}\n"
                     f"Design Code   : {s.get('design_code','')}\n"
                     f"Customer Type : B2B / Wholesaler\n\n"
-                    f"Hamari B2B team 24 ghante ke andar aapse contact karegi - "
+                    f"Hamari B2B team 24 ghante ke andar aapse contact karegi -\n"
                     f"pricing, MOQ aur design file ke baare mein.\n\n"
                     f"Koi bhi sawaal ho:\n"
-                    f"WhatsApp / Call : +91 76000 56655\n"
-                    f"Email           : ajewelstudio@gmail.com\n\n"
+                    f"Call : +91 76000 56655\n"
+                    f"Email: ajewelstudio@gmail.com\n\n"
                     f"Aapki partnership hamare liye bahut important hai.\n"
                     f"Dhanyawad!\nTeam A Jewel Studio"
                 )
@@ -401,6 +458,7 @@ def webhook():
             else:
                 send_message(from_number, "Namaste! Menu ke liye Hi likho.")
 
+        # ---- INTERACTIVE MESSAGES ----
         elif msg_type == "interactive":
             interactive = msg["interactive"]
 
@@ -414,11 +472,18 @@ def webhook():
                 else:
                     user_sessions[from_number]["sub_cat"] = selected_id
                     user_sessions[from_number]["step"] = "waiting_design"
+                    # Step 3 — Catalog CTA button (link hidden)
                     send_message(from_number,
                         f"Aapne select kiya: {selected_title}\n\n"
-                        f"Hamara WhatsApp catalog dekho:\n{WHATSAPP_CATALOG}\n\n"
-                        f"Catalog dekh kar apna Design Code enter karein\n"
+                        f"Neeche button se hamara catalog dekho.\n"
+                        f"Pasand aaya design uska code yahan type karein\n"
                         f"(Example: FACE-EAR-STUDS-001):"
+                    )
+                    send_cta_button(
+                        to=from_number,
+                        body_text="Catalog dekh kar Design Code yahan type karein:",
+                        button_text="Catalog Dekho",
+                        button_url=WHATSAPP_CATALOG
                     )
 
             elif interactive["type"] == "button_reply":
@@ -436,49 +501,68 @@ def webhook():
 # ---- PAYMENT CALLBACK ----
 @app.route("/payment-callback", methods=["GET"])
 def payment_callback():
-    payment_id = request.args.get("razorpay_payment_id", "")
-    payment_link_id = request.args.get("razorpay_payment_link_id", "")
     reference_id = request.args.get("razorpay_payment_link_reference_id", "")
     status = request.args.get("razorpay_payment_link_status", "")
-
-    print(f"Payment callback: {payment_id} | {reference_id} | {status}")
-
+    print(f"Callback: {reference_id} | {status}")
     if status == "paid" and reference_id:
-        # Sheet mein status update karo
         update_sheet_status(reference_id, "Paid")
-        print(f"Payment successful: {reference_id}")
+    return "OK", 200
 
-    return "Payment processed!", 200
-
-# ---- RAZORPAY WEBHOOK ----
+# ---- RAZORPAY WEBHOOK — Step 10 ----
 @app.route("/razorpay-webhook", methods=["POST"])
 def razorpay_webhook():
     data = request.get_json()
-    print(f"Razorpay webhook: {json.dumps(data)}")
+    print(f"Razorpay: {json.dumps(data)}")
     try:
         event = data.get("event", "")
+
+        # Step 10 — Payment success → Invoice + Digital File
         if event == "payment_link.paid":
             payload = data["payload"]["payment_link"]["entity"]
             order_id = payload.get("reference_id", "")
             customer = payload.get("customer", {})
-            phone = customer.get("contact", "")
+            name = customer.get("name", "")
+            phone = customer.get("contact", "").replace("+", "").replace(" ", "")
+            amount = payload.get("amount", 0) / 100
 
-            # Sheet status update
             update_sheet_status(order_id, "Paid")
 
-            # Customer ko download link bhejo
             if phone:
-                whatsapp_number = phone.replace("+", "").replace(" ", "")
-                send_message(whatsapp_number,
-                    f"Payment receive ho gayi! Bahut shukriya!\n\n"
-                    f"Order ID: {order_id}\n\n"
-                    f"Aapki 3D design file ready hai.\n"
-                    f"Hamari team aapko download link bhejegi.\n\n"
-                    f"Koi bhi sawaal ho:\n"
-                    f"WhatsApp / Call : +91 76000 56655\n"
-                    f"Email           : ajewelstudio@gmail.com\n\n"
-                    f"Dhanyawad!\nTeam A Jewel Studio"
+                # Payment success message
+                send_message(phone,
+                    f"Namaste {name} ji,\n\n"
+                    f"Aapki payment successfully receive ho gayi!\n\n"
+                    f"--- Invoice ---\n"
+                    f"Order ID : {order_id}\n"
+                    f"Amount   : Rs. {int(amount)}\n"
+                    f"Status   : Paid\n"
+                    f"Date     : {datetime.now().strftime('%d-%m-%Y')}\n\n"
+                    f"Aapki 3D design file ready hai!\n"
+                    f"Neeche button se download karein:"
                 )
+                # Step 10 — Download CTA button (link hidden)
+                send_cta_button(
+                    to=phone,
+                    body_text="Aapki design file download karne ke liye button dabayein:",
+                    button_text="Download Now",
+                    button_url=f"https://a-jewel-studio-3.myshopify.com/a/downloads"
+                )
+
+        # Payment failed
+        elif event == "payment.failed":
+            try:
+                payload = data["payload"]["payment"]["entity"]
+                phone = payload.get("contact", "").replace("+", "").replace(" ", "")
+                if phone:
+                    send_message(phone,
+                        f"Payment complete nahi hui.\n\n"
+                        f"Dobara try karne ke liye hamare team se contact karein:\n"
+                        f"Call : +91 76000 56655\n"
+                        f"Email: ajewelstudio@gmail.com\n\n"
+                        f"Dhanyawad!\nTeam A Jewel Studio"
+                    )
+            except:
+                pass
 
     except Exception as e:
         print(f"Razorpay webhook error: {e}")
