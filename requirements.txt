@@ -1,6 +1,6 @@
-flask
-requests
-gunicorn
-gspread
-google-auth
-razorpay
+flask==3.0.3
+requests==2.32.3
+gunicorn==22.0.0
+gspread==6.1.0
+google-auth==2.34.0
+razorpay==1.4.1
