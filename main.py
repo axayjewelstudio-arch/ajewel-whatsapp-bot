@@ -152,7 +152,7 @@ def send_greeting(to):
         "A Jewel Studio visit karne ke liye\n"
         "aapka dil se dhanyavaad.\n\n"
         "Aage badhne ke liye niche Menu select karein:",
-        [{"id": "menu", "title": "📋 Menu"}]
+        [{"id": "menu", "title": "Menu"}]
     )
 
 def send_registration(to):
@@ -167,7 +167,7 @@ def send_registration(to):
         "   • Latest designs par priority updates\n\n"
         "Niche Sign Up karein aur wapas aakar\n"
         "'Hi' type karein — hum ready hain! 😊",
-        "🔐 Sign Up",
+        "Sign Up",
         SHOPIFY_REGISTER
     )
 
@@ -177,7 +177,7 @@ def send_catalog(to):
         "💍 Hamari exclusive collection explore karein!\n\n"
         "Niche button click karein aur apni\n"
         "pasandida category chunein.",
-        "🛍️ View Catalog",
+        "View Catalog",
         CATALOG_LINK
     )
 
@@ -188,8 +188,8 @@ def send_customer_type(to):
         "hum aapka customer type jaanna chahte hain.\n\n"
         "Kripya niche se select karein: 👇",
         [
-            {"id": "retail", "title": "🛒 Retail Customer"},
-            {"id": "b2b",    "title": "🤝 B2B / Wholesale"}
+            {"id": "retail", "title": "Retail Customer"},
+            {"id": "b2b",    "title": "B2B / Wholesale"}
         ]
     )
 
@@ -267,7 +267,7 @@ def send_b2b_payment(to, session):
             f"Order ID : #{order_id}\n\n"
             f"Niche button click karke\n"
             f"secure payment karein:",
-            "💳 Payment Karein",
+            "Payment Karein",
             pay_link
         )
     else:
@@ -304,7 +304,7 @@ def send_b2b_success(to, order_id, amount):
         to,
         "Aapki digital files ready hain! 📦\n"
         "Niche button click karke download karein:",
-        "📥 Download Now",
+        "Download Now",
         SHOPIFY_DOWNLOADS
     )
 
@@ -317,7 +317,7 @@ def send_b2b_failed(to, order_id, pay_link):
         "❌ Aapki payment complete nahi hui.\n\n"
         "Kripya dobara try karein —\n"
         "aapka order abhi bhi active hai. 😊",
-        "🔄 Dobara Try Karein",
+        "Dobara Try Karein",
         pay_link
     )
     update_sheet_status(order_id, "Payment Failed")
