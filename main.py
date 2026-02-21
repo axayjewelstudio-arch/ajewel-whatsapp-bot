@@ -12,7 +12,7 @@ VERIFY_TOKEN    = os.environ.get("VERIFY_TOKEN", "ajewel2024")
 ACCESS_TOKEN    = os.environ.get("ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = "928999850307609"
 SHEET_ID        = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
-SHOPIFY_REGISTER = "https://a-jewel-studio-3.myshopify.com/account/register"
+SHOPIFY_REGISTER = "https://https://shopify.com/81532485868/account"
 
 # ---- CATALOG URL ----
 def catalog_url(set_id):
