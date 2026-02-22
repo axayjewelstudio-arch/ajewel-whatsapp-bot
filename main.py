@@ -1,23 +1,24 @@
 # --------------------------------------------------------------
-# main.py – A‑Jewel WhatsApp Bot
+# main.py – A‑Jewel WhatsApp Bot (OAuth token version)
 # --------------------------------------------------------------
 """
 High‑level flow
 1️⃣  User initiates conversation – The user sends “hi” on WhatsApp.
-The bot checks the Shopify store to see whether the customer is new or existing.
+   The bot checks the Shopify store to see whether the customer is new or existing.
 2️⃣  Bot presents the main menu – The bot replies with a “Menu” button that offers two options:
-• Catalog – Shows Shopify collections → products → variants.
-• Custom Jewellery – Directly asks the user for the name of the custom piece they want.
+   • Catalog – Shows Shopify collections → products → variants.
+   • Custom Jewellery – Directly asks the user for the name of the custom piece they want.
 3️⃣  Variant selection – Whatever variant the customer picks is saved to a temporary cart‑list. 
 4️⃣  Checkout – When the user types “checkout”, the bot:
-• Calculates the total amount for all items in the cart.
-• Generates a Razorpay payment‑link and sends it to the user. 
+   • Calculates the total amount for all items in the cart.
+   • Generates a Razorpay payment‑link and sends it to the user. 
 5️⃣  Payment confirmation – Razorpay sends a callback (GET) or webhook (POST) with the payment status.
-The bot then notifies the user with a success or failure message accordingly.  
+   The bot then notifies the user with a success or failure message accordingly.  
 6️⃣  Post‑checkout handling –
-• For B2B customers, the bot provides a “Download Now” button that delivers the digital 3‑D file.
-• For Retail customers, the bot sends a message saying “We will contact you soon.”  
-7️⃣  Reminder for incomplete checkout – If the user never completes the checkout, a cron job (running on Render between 9 PM and 11 PM) automatically sends a reminder message.  
+   • For B2B customers, the bot provides a “Download Now” button that delivers the digital 3‑D file.
+   • For Retail customers, the bot sends a message saying “We will contact you soon.”  
+7️⃣  Reminder for incomplete checkout – If the user never completes the checkout, a cron job
+   (running on Render between 9 PM and 11 PM) automatically sends a reminder message.  
 """
 
 import os
@@ -26,6 +27,8 @@ import hmac
 import hashlib
 import logging
 import random
+import time
+import threading
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
@@ -59,18 +62,25 @@ def env(name: str, required: bool = True, default: str = "") -> str:
     return v
 
 
-VERIFY_TOKEN        = env("VERIFY_TOKEN")                # WhatsApp webhook verify token
-ACCESS_TOKEN        = env("ACCESS_TOKEN")                # Meta Graph API token (send messages)
-PHONE_NUMBER_ID     = env("PHONE_NUMBER_ID")             # WhatsApp Business phone id
-SHOPIFY_STORE       = env("SHOPIFY_STORE")               # e.g. a-jewel-studio-3.myshopify.com
-SHOPIFY_API_KEY     = env("SHOPIFY_API_KEY")
-SHOPIFY_PASSWORD    = env("SHOPIFY_PASSWORD")
-RAZORPAY_KEY_ID    = env("RAZORPAY_KEY_ID")
-RAZORPAY_KEY_SECRET= env("RAZORPAY_KEY_SECRET")
-GEMINI_API_KEY      = env("GEMINI_API_KEY")
-GOOGLE_CRED_JSON    = env("GOOGLE_CREDENTIALS")          # service‑account JSON string
-SHEET_ID            = env("SHEET_ID", required=False)    # optional audit sheet
-META_BUSINESS_ID    = env("META_BUSINESS_ID")            # Facebook Business Account that owns the WhatsApp number
+VERIFY_TOKEN          = env("VERIFY_TOKEN")                # WhatsApp webhook verify token
+ACCESS_TOKEN          = env("ACCESS_TOKEN")                # Meta Graph API token (send messages)
+PHONE_NUMBER_ID       = env("PHONE_NUMBER_ID")             # WhatsApp Business phone id
+SHOPIFY_STORE         = env("SHOPIFY_STORE")               # e.g. a-jewel-studio-3.myshopify.com
+
+# ---- OAuth client‑credentials credentials (new) ----
+SHOPIFY_CLIENT_ID      = env("SHOPIFY_CLIENT_ID")          # 2251a2d4c5b1a048ab52e21f0be54dee
+SHOPIFY_CLIENT_SECRET  = env("SHOPIFY_CLIENT_SECRET")      # shpss_…
+
+# ---- Legacy keys (kept only for backward‑compatibility, not used) ----
+# SHOPIFY_API_KEY   = env("SHOPIFY_API_KEY", required=False)
+# SHOPIFY_PASSWORD  = env("SHOPIFY_PASSWORD", required=False)
+
+RAZORPAY_KEY_ID       = env("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET   = env("RAZORPAY_KEY_SECRET")
+GEMINI_API_KEY        = env("GEMINI_API_KEY")
+GOOGLE_CRED_JSON      = env("GOOGLE_CREDENTIALS")          # service‑account JSON string
+SHEET_ID              = env("SHEET_ID", required=False)   # optional audit sheet
+META_BUSINESS_ID      = env("META_BUSINESS_ID")            # Facebook Business Account that owns the WhatsApp number
 
 # ------------------------------------------------------------------
 # 3️⃣  Global objects
@@ -78,7 +88,57 @@ META_BUSINESS_ID    = env("META_BUSINESS_ID")            # Facebook Business Acc
 rzp_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 # ------------------------------------------------------------------
-# 4️⃣  Dataclass – session per phone
+# 4️⃣  Token cache (client‑credentials) – thread‑safe
+# ------------------------------------------------------------------
+_token_cache = {
+    "access_token": None,   # actual token string
+    "expires_at": 0,         # epoch seconds when the token expires
+    "lock": threading.Lock()
+}
+
+
+def _request_new_shopify_token() -> dict:
+    """
+    Calls Shopify's OAuth client‑credentials endpoint and returns the JSON payload:
+    {
+        "access_token": "...",
+        "scope": "...",
+        "expires_in": 86399
+    }
+    """
+    url = f"https://{SHOPIFY_STORE}/admin/oauth/access_token"
+    payload = {
+        "grant_type": "client_credentials",
+        "client_id": SHOPIFY_CLIENT_ID,
+        "client_secret": SHOPIFY_CLIENT_SECRET,
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    resp = requests.post(url, data=payload, headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_shopify_access_token() -> str:
+    """
+    Returns a valid X‑Shopify‑Access‑Token.
+    Auto‑refreshes when the cached token is about to expire.
+    """
+    with _token_cache["lock"]:
+        now = int(time.time())
+        # Keep a 30‑second safety buffer before expiry
+        if _token_cache["access_token"] and now < _token_cache["expires_at"] - 30:
+            return _token_cache["access_token"]
+
+        # Need a fresh token
+        data = _request_new_shopify_token()
+        _token_cache["access_token"] = data["access_token"]
+        _token_cache["expires_at"] = now + int(data.get("expires_in", 86400))
+        log.info("Fetched new Shopify access token (expires in %s secs)", data.get("expires_in"))
+        return _token_cache["access_token"]
+
+
+# ------------------------------------------------------------------
+# 5️⃣  Dataclass – session per phone
 # ------------------------------------------------------------------
 @dataclass
 class UserSession:
@@ -96,11 +156,11 @@ class UserSession:
     order_id: Optional[str] = None
     amount: Optional[float] = None
 
-# In‑memory store (Render restart = data loss, okay for demo)
+# In‑memory store (Render restart = data loss, ok for demo)
 sessions: Dict[str, UserSession] = {}
 
 # ------------------------------------------------------------------
-# 5️⃣  Gemini prompts (Professional + Hinglish)
+# 6️⃣  Gemini prompts (Professional + Hinglish)
 # ------------------------------------------------------------------
 SYSTEM_PROMPTS: Dict[str, str] = {
     "greeting": (
@@ -155,10 +215,10 @@ SYSTEM_PROMPTS: Dict[str, str] = {
 }
 
 # ------------------------------------------------------------------
-# 6️⃣  Helper – Gemini call (safe fallback)
+# 7️⃣  Helper – Gemini call (safe fallback)
 # ------------------------------------------------------------------
 def gemini_reply(user_msg: str, ctx: str = "general", cust_name: str = "") -> str:
-    """Call Gemini‑1.5‑Flash, return plain text. If candidates missing → fallback."""
+    """Call Gemini‑1.5‑Flash, return plain text. If anything fails → tiny fallback."""
     prompt = SYSTEM_PROMPTS.get(ctx, SYSTEM_PROMPTS["general"])
     if cust_name:
         prompt += f" Customer ka naam: {cust_name}."
@@ -175,7 +235,6 @@ def gemini_reply(user_msg: str, ctx: str = "general", cust_name: str = "") -> st
             timeout=10,
         )
         data = resp.json()
-        # safe extraction
         cand = data.get("candidates")
         if not cand:
             raise ValueError("No candidates")
@@ -196,7 +255,7 @@ def gemini_reply(user_msg: str, ctx: str = "general", cust_name: str = "") -> st
         return simple_fallback.get(ctx, "Sorry, I didn’t get that. Type *menu*.")
 
 # ------------------------------------------------------------------
-# 7️⃣  Helper – WhatsApp send (single entry point)
+# 8️⃣  Helper – WhatsApp send (single entry point)
 # ------------------------------------------------------------------
 def wa_send(to: str, body: str, typ: str = "text", extra: Optional[dict] = None) -> None:
     """
@@ -221,12 +280,19 @@ def wa_send(to: str, body: str, typ: str = "text", extra: Optional[dict] = None)
         log.error(f"WhatsApp send error (to={to}, typ={typ}): {exc}")
 
 # ------------------------------------------------------------------
-# 8️⃣  Helper – Shopify GET (basic auth)
+# 9️⃣  Helper – Shopify GET (now uses OAuth token)
 # ------------------------------------------------------------------
 def shopify_get(endpoint: str) -> dict:
-    url = f"https://{SHOPIFY_API_KEY}:{SHOPIFY_PASSWORD}@{SHOPIFY_STORE}/admin/api/2024-04/{endpoint}"
+    """
+    Perform a GET against Shopify Admin API using the X‑Shopify‑Access‑Token header.
+    """
+    base_url = f"https://{SHOPIFY_STORE}/admin/api/2024-04/{endpoint}"
+    headers = {
+        "X-Shopify-Access-Token": get_shopify_access_token(),
+        "Accept": "application/json",
+    }
     try:
-        r = requests.get(url, timeout=10)
+        r = requests.get(base_url, headers=headers, timeout=10)
         r.raise_for_status()
         return r.json()
     except Exception as exc:
@@ -234,7 +300,7 @@ def shopify_get(endpoint: str) -> dict:
         return {}
 
 # ------------------------------------------------------------------
-# 9️⃣  Helper – Google Sheet (optional order log)
+# 10️⃣  Helper – Google Sheet (optional order log)
 # ------------------------------------------------------------------
 def sheet() -> Optional[gspread.models.Spreadsheet]:
     if not SHEET_ID:
@@ -264,7 +330,7 @@ def log_to_sheet(row: List):
             log.error(f"Google Sheet write error: {exc}")
 
 # ------------------------------------------------------------------
-# 10️⃣  Helper – order‑id & Razorpay link
+# 11️⃣  Helper – order‑id & Razorpay link
 # ------------------------------------------------------------------
 def generate_order_id() -> str:
     return "AJS" + datetime.now().strftime("%d%m%y%H%M%S")
@@ -273,7 +339,7 @@ def generate_order_id() -> str:
 def create_razorpay_link(amount_inr: float, order_id: str, name: str, phone: str) -> str:
     """Return short_url or empty string."""
     payload = {
-        "amount": int(amount_inr * 100),  # paisa
+        "amount": int(amount_inr * 100),          # paisa
         "currency": "INR",
         "description": f"A Jewel Studio Order {order_id}",
         "customer": {"name": name, "contact": phone},
@@ -289,7 +355,7 @@ def create_razorpay_link(amount_inr: float, order_id: str, name: str, phone: str
         return ""
 
 # ------------------------------------------------------------------
-# 11️⃣  UI – Common send helpers
+# 12️⃣  UI – Common send helpers
 # ------------------------------------------------------------------
 def send_menu(to: str):
     """Main menu – Catalog OR Custom Jewellery."""
@@ -434,13 +500,12 @@ def start_checkout(sess: UserSession):
         wa_send(sess.phone, "Sorry, could not create payment link. Contact support.")
         return
 
-    msg = gemini_reply(f"Order {order_id} ready for payment.", "b2b_payment" if sess.customer_type == "b2b" else "retail_confirm", sess.name or "")
-    wa_send(
-        sess.phone,
-        msg,
-        "cta_url",
-        {"display_text": "Pay Now", "url": link},
+    msg = gemini_reply(
+        f"Order {order_id} ready for payment.",
+        "b2b_payment" if sess.customer_type == "b2b" else "retail_confirm",
+        sess.name or "",
     )
+    wa_send(sess.phone, msg, "cta_url", {"display_text": "Pay Now", "url": link})
 
 
 def payment_success(sess: UserSession):
@@ -479,7 +544,7 @@ def payment_failed(sess: UserSession):
     log_to_sheet([datetime.now().isoformat(), sess.order_id, "Failed"])
 
 # ------------------------------------------------------------------
-# 12️⃣  Flask Routes – WhatsApp webhook (GET verification & POST)
+# 13️⃣  Flask Routes – WhatsApp webhook (GET verification & POST)
 # ------------------------------------------------------------------
 @app.route("/webhook", methods=["GET"])
 def verify():
@@ -525,7 +590,7 @@ def inbound():
                     phone,
                     "Sign‑Up",
                     "cta_url",
-                    {"title": "Create Shopify Account", "url": "https://a-jewel-studio-3.myshopify.com/account/register"},
+                    {"title": "Create Shopify Account", "url": f"https://{SHOPIFY_STORE}/account/register"},
                 )
             return jsonify({"status": "ok"}), 200
 
@@ -542,7 +607,7 @@ def inbound():
 
             if btn_id == "custom":
                 # Custom jewellery – just ask for name and close
-                wa_send(phone, "कृपया अपना पूरा नाम लिखें:", "text")
+                wa_send(phone, "Kripya apna poora naam likhein:", "text")
                 sess.step = "await_name_custom"
                 return jsonify({"status": "ok"}), 200
 
@@ -563,10 +628,10 @@ def inbound():
 
             # -------- Custom‑Jewellery name capture ----------
             if sess.step == "await_name_custom":
-                sess.name = btn_id  # actually the plain text sent later as a text message
+                sess.name = btn_id
                 wa_send(
                     phone,
-                    f"धन्यवाद {sess.name}, हमारी टीम जल्द ही आपको एस्टिमेट भेजेगी।",
+                    f"Dhanyavaad {sess.name}, hamari team jald hi aapko estimate bhejegi.",
                     "text",
                 )
                 sess.step = "finished"
@@ -576,8 +641,7 @@ def inbound():
             if sess.step == "await_customer_type":
                 if btn_id in ("retail", "b2b"):
                     sess.customer_type = btn_id
-                    # start collecting personal data
-                    wa_send(phone, "कृपया अपना पूरा नाम लिखें:", "text")
+                    wa_send(phone, "Kripya apna poora naam likhein:", "text")
                     sess.step = "await_name"
                 return jsonify({"status": "ok"}), 200
 
@@ -594,7 +658,7 @@ def inbound():
 
             if text == "checkout":
                 if not sess.cart:
-                    wa_send(phone, "आपका कार्ट खाली है – पहले कोई प्रोडक्ट जोड़ें।")
+                    wa_send(phone, "Aapka cart khaali hai – pehle koi product jodhen.")
                 else:
                     start_checkout(sess)
                 return jsonify({"status": "ok"}), 200
@@ -608,8 +672,10 @@ def inbound():
                 next_map = {
                     "name": ("contact", "collect_phone"),
                     "contact": ("email", "collect_email"),
-                    "email": ("company" if sess.customer_type == "b2b" else "address",
-                              "collect_company" if sess.customer_type == "b2b" else "collect_address"),
+                    "email": (
+                        "company" if sess.customer_type == "b2b" else "address",
+                        "collect_company" if sess.customer_type == "b2b" else "collect_address",
+                    ),
                     "company": ("gst", "collect_gst"),
                     "gst": ("address", "collect_address"),
                     "address": ("city", "collect_city"),
@@ -637,7 +703,7 @@ def inbound():
 
 
 # ------------------------------------------------------------------
-# 13️⃣  Razorpay GET callback (after user pays)
+# 14️⃣  Razorpay GET callback (after user pays)
 # ------------------------------------------------------------------
 @app.route("/payment-callback", methods=["GET"])
 def razorpay_callback():
@@ -671,7 +737,7 @@ def razorpay_callback():
 
 
 # ------------------------------------------------------------------
-# 14️⃣  Razorpay POST webhook (alternative, more reliable)
+# 15️⃣  Razorpay POST webhook (alternative, more reliable)
 # ------------------------------------------------------------------
 @app.route("/razorpay-webhook", methods=["POST"])
 def razorpay_webhook():
@@ -687,7 +753,6 @@ def razorpay_webhook():
         if data.get("event") == "payment_link.paid":
             notes = data["payload"]["payment_link"]["entity"].get("notes", {})
             order_id = notes.get("order_id")
-            amount = data["payload"]["payment_link"]["entity"]["amount"] // 100  # INR
             for sess in list(sessions.values()):
                 if sess.order_id == order_id:
                     payment_success(sess)
@@ -700,7 +765,7 @@ def razorpay_webhook():
 
 
 # ------------------------------------------------------------------
-# 15️⃣  Daily reminder – Render cron (21‑23 h)
+# 16️⃣  Daily reminder – Render cron (21‑23 h)
 # ------------------------------------------------------------------
 @app.route("/reminder", methods=["GET"])
 def reminder():
@@ -712,14 +777,14 @@ def reminder():
         if sess.cart and sess.step != "payment_pending":
             wa_send(
                 sess.phone,
-                "🛒 आपका कार्ट अभी भी है – कृपया *checkout* करें या *menu* दबाएँ।",
+                "🛒 aapka cart abhi bhi hai – kripya *checkout* karein ya *menu* dabayein.",
                 "text",
             )
     return "Reminder sent", 200
 
 
 # ------------------------------------------------------------------
-# 16️⃣  Run Flask (Render injects $PORT)
+# 17️⃣  Run Flask (Render injects $PORT)
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
