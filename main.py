@@ -80,7 +80,7 @@ RAZORPAY_KEY_SECRET   = env("RAZORPAY_KEY_SECRET")
 GEMINI_API_KEY        = env("GEMINI_API_KEY")
 GOOGLE_CRED_JSON      = env("GOOGLE_CREDENTIALS")          # service‑account JSON string
 SHEET_ID              = env("SHEET_ID", required=False)   # optional audit sheet
-META_BUSINESS_ID      = env("META_BUSINESS_ID")            # Facebook Business Account that owns the WhatsApp number
+META_BUSINESS_ID = "1567810994489354"            # Facebook Business Account that owns the WhatsApp number
 
 # ------------------------------------------------------------------
 # 3️⃣  Global objects
