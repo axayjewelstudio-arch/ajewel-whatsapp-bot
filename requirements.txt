@@ -4,3 +4,5 @@ gunicorn
 gspread
 google-auth
 razorpay
+shopify
+pyactiveresource
