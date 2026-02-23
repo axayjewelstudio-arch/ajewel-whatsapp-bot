@@ -302,6 +302,10 @@ def whatsapp_webhook():
             changes = entry['changes'][0]
             value = changes['value']
             
+            # Status updates (sent/delivered/read) ignore karo
+            if 'statuses' in value and 'messages' not in value:
+                return jsonify({"status": "ok"}), 200
+
             if 'messages' in value:
                 message = value['messages'][0]
                 from_number = message['from']
@@ -381,7 +385,7 @@ def handle_button_response(phone, button_id, button_title):
     # Auto-close: Shopify appointment page pe form submit ke baad window.close() JS daalna hoga.
     if 'yes' in button_id.lower():
         message = f"{customer_name}, thank you for choosing us! 💍\n\nAppoint book karein — yeh WhatsApp mein hi khulega:"
-        send_cta_url_button(phone, message, "Book Appointment", f"https://{SHOPIFY_STORE}/pages/appointment")
+        send_cta_url_button(phone, message, "Book Appointment", f"https://{SHOPIFY_STORE}/apps/appointo")
     
     # NO or MENU - Show main 6 collections
     elif 'no' in button_id.lower() or 'menu' in button_id.lower():
