@@ -369,7 +369,7 @@ def handle_text_message(phone, text):
         else:
             # New customer - registration
             message = "Welcome to A Jewel Studio! 💎\n\nOrder karne ke liye pehle account banana hoga.\n\nNeeche diye gaye button se sign-up karein:"
-            send_cta_url_button(phone, message, "Sign Up", f"https://{SHOPIFY_STORE}/account/register")
+            send_cta_url_button(phone, message, "Sign Up", f"https://{SHOPIFY_STORE}/pages/customer-registration")
     
     else:
         send_whatsapp_message(phone, "Main aapki madad ke liye yahan hoon! 'Hi' type karein.")
