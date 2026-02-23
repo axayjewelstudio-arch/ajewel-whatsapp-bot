@@ -1,4 +1,4 @@
-# main.py - AJewel WhatsApp Bot Complete Flow
+# main.py - AJewel WhatsApp Bot Complete Flow with All Buttons
 from flask import Flask, request, jsonify
 import requests
 import os
@@ -24,6 +24,9 @@ SHOPIFY_HEADERS = {
     'Content-Type': 'application/json'
 }
 
+# User session storage (temporary - use database in production)
+user_sessions = {}
+
 # ==================== HELPER FUNCTIONS ====================
 
 def send_whatsapp_message(phone_number, message):
@@ -43,7 +46,7 @@ def send_whatsapp_message(phone_number, message):
     return response.json()
 
 def send_whatsapp_buttons(phone_number, message, buttons):
-    """Send interactive buttons"""
+    """Send interactive buttons (max 3)"""
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
         'Authorization': f'Bearer {WHATSAPP_TOKEN}',
@@ -51,12 +54,12 @@ def send_whatsapp_buttons(phone_number, message, buttons):
     }
     
     button_list = []
-    for i, btn in enumerate(buttons[:3]):  # Max 3 buttons
+    for i, btn in enumerate(buttons[:3]):
         button_list.append({
             "type": "reply",
             "reply": {
-                "id": f"btn_{i}",
-                "title": btn
+                "id": f"btn_{i}_{btn.lower().replace(' ', '_')}",
+                "title": btn[:20]  # Max 20 chars
             }
         })
     
@@ -73,6 +76,177 @@ def send_whatsapp_buttons(phone_number, message, buttons):
     response = requests.post(url, headers=headers, json=payload)
     return response.json()
 
+def send_signup_button(phone_number, message):
+    """Send sign-up button with Shopify registration link"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    signup_url = f"https://{SHOPIFY_STORE}/account/register"
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": message},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": "Sign Up",
+                    "url": signup_url
+                }
+            }
+        }
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+def send_appointment_button(phone_number, message):
+    """Send appointment booking button"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    appointment_url = f"https://{SHOPIFY_STORE}/pages/appointment"
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": message},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": "Book Appointment",
+                    "url": appointment_url
+                }
+            }
+        }
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+def send_payment_button(phone_number, message, payment_link):
+    """Send payment retry button"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": message},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": "Pay Now",
+                    "url": payment_link
+                }
+            }
+        }
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+def send_download_button(phone_number, message, download_link):
+    """Send download button for design files"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": message},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": "Click Here to Download",
+                    "url": download_link
+                }
+            }
+        }
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+def send_list_message(phone_number, header, body, button_text, sections):
+    """Send interactive list (for collections/categories)"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": header},
+            "body": {"text": body},
+            "action": {
+                "button": button_text,
+                "sections": sections
+            }
+        }
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+def send_catalogue(phone_number, catalogue_id):
+    """Send WhatsApp catalogue"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "catalog_message",
+            "body": {"text": "Browse our products"},
+            "action": {
+                "name": "catalog_message",
+                "parameters": {
+                    "thumbnail_product_retailer_id": catalogue_id
+                }
+            }
+        }
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+# ==================== SHOPIFY FUNCTIONS ====================
+
 def get_shopify_customer(phone):
     """Check if customer exists in Shopify"""
     url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
@@ -83,25 +257,8 @@ def get_shopify_customer(phone):
         return data['customers'][0]
     return None
 
-def create_shopify_customer(name, phone, email, customer_type="Retailer"):
-    """Create new customer in Shopify"""
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers.json"
-    
-    payload = {
-        "customer": {
-            "first_name": name,
-            "phone": phone,
-            "email": email,
-            "tags": customer_type,
-            "note": f"Registered via WhatsApp - Type: {customer_type}"
-        }
-    }
-    
-    response = requests.post(url, headers=SHOPIFY_HEADERS, json=payload)
-    return response.json()
-
 def get_shopify_collections():
-    """Get all collections"""
+    """Get all main collections"""
     url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/custom_collections.json"
     response = requests.get(url, headers=SHOPIFY_HEADERS)
     data = response.json()
@@ -114,22 +271,7 @@ def get_collection_products(collection_id):
     data = response.json()
     return data.get('products', [])
 
-def create_draft_order(customer_id, line_items):
-    """Create draft order"""
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/draft_orders.json"
-    
-    payload = {
-        "draft_order": {
-            "customer": {"id": customer_id},
-            "line_items": line_items,
-            "note": "Order placed via WhatsApp Bot"
-        }
-    }
-    
-    response = requests.post(url, headers=SHOPIFY_HEADERS, json=payload)
-    return response.json()
-
-def generate_razorpay_link(amount, customer_name, customer_phone):
+def generate_razorpay_link(amount, customer_name, customer_phone, order_id):
     """Generate Razorpay payment link"""
     import base64
     
@@ -142,16 +284,15 @@ def generate_razorpay_link(amount, customer_name, customer_phone):
     }
     
     payload = {
-        "amount": int(amount * 100),  # Amount in paise
+        "amount": int(amount * 100),
         "currency": "INR",
-        "description": "A Jewel Studio - Design Purchase",
+        "description": f"A Jewel Studio - Order #{order_id}",
         "customer": {
             "name": customer_name,
             "contact": customer_phone
         },
         "notify": {
             "sms": True,
-            "email": False,
             "whatsapp": True
         },
         "callback_url": f"https://ajewel-whatsapp-bot.onrender.com/payment/callback",
@@ -186,7 +327,6 @@ def whatsapp_webhook():
         data = request.json
         
         try:
-            # Extract message details
             entry = data['entry'][0]
             changes = entry['changes'][0]
             value = changes['value']
@@ -203,8 +343,22 @@ def whatsapp_webhook():
                 
                 # Handle button responses
                 elif message_type == 'interactive':
-                    button_reply = message['interactive']['button_reply']['title']
-                    handle_button_response(from_number, button_reply)
+                    interactive_type = message['interactive']['type']
+                    
+                    if interactive_type == 'button_reply':
+                        button_id = message['interactive']['button_reply']['id']
+                        button_title = message['interactive']['button_reply']['title']
+                        handle_button_response(from_number, button_id, button_title)
+                    
+                    elif interactive_type == 'list_reply':
+                        list_id = message['interactive']['list_reply']['id']
+                        list_title = message['interactive']['list_reply']['title']
+                        handle_list_response(from_number, list_id, list_title)
+                
+                # Handle order messages (catalogue orders)
+                elif message_type == 'order':
+                    order_data = message['order']
+                    handle_order(from_number, order_data)
         
         except Exception as e:
             print(f"Error: {e}")
@@ -214,72 +368,187 @@ def whatsapp_webhook():
 def handle_text_message(phone, text):
     """Handle incoming text messages"""
     
-    # Check if customer exists
     customer = get_shopify_customer(phone)
     
-    if text in ['hi', 'hello', 'hey', 'start']:
+    if text in ['hi', 'hello', 'hey', 'start', 'menu']:
         if customer:
-            # Existing customer
+            # EXISTING CUSTOMER
             customer_name = customer.get('first_name', 'Customer')
             customer_tags = customer.get('tags', '')
             
             if 'B2B' in customer_tags or 'Wholesaler' in customer_tags:
-                # B2B Customer Flow
+                # B2B CUSTOMER FLOW
                 message = f"Hello {customer_name}! Welcome to A Jewel Studio 💎"
-                send_whatsapp_buttons(phone, message, ["Browse Products", "My Orders", "Support"])
+                send_whatsapp_buttons(phone, message, ["Menu"])
+                
             else:
-                # Retail Customer Flow
+                # RETAIL CUSTOMER FLOW
                 message = f"Hello {customer_name}! Welcome to A Jewel Studio 💎\n\nKya aap Custom Jewellery karvana chahte hain?"
-                send_whatsapp_buttons(phone, message, ["Yes - Custom", "No - Browse Products"])
+                send_whatsapp_buttons(phone, message, ["Yes", "No"])
         else:
-            # New customer - Registration flow
-            message = "Welcome to A Jewel Studio! 💎\n\nOrder karne ke liye pehle account banana hoga.\n\nKripya apna naam bhejein:"
-            send_whatsapp_message(phone, message)
-    
-    elif text == 'menu':
-        # Show collections
-        collections = get_shopify_collections()
-        if collections:
-            message = "📂 Our Collections:\n\n"
-            for i, col in enumerate(collections[:5], 1):
-                message += f"{i}. {col['title']}\n"
-            message += "\nCollection number bhejein (e.g., 1)"
-            send_whatsapp_message(phone, message)
-        else:
-            send_whatsapp_message(phone, "Collections load nahi ho paye. Kripya baad mein try karein.")
+            # NEW CUSTOMER - Registration Flow
+            message = "Welcome to A Jewel Studio! 💎\n\nOrder karne ke liye pehle account banana hoga.\n\nNeeche diye gaye button se sign-up karein:"
+            send_signup_button(phone, message)
     
     else:
-        # Default response
         send_whatsapp_message(phone, "Main aapki madad ke liye yahan hoon! 'Hi' type karein to start karein.")
 
-def handle_button_response(phone, button_text):
+def handle_button_response(phone, button_id, button_title):
     """Handle button click responses"""
     
     customer = get_shopify_customer(phone)
+    customer_name = customer.get('first_name', 'Customer') if customer else 'Customer'
+    customer_tags = customer.get('tags', '') if customer else ''
     
-    if button_text == "Browse Products":
-        collections = get_shopify_collections()
-        if collections:
-            message = "📂 Select Category:\n\n"
-            for i, col in enumerate(collections[:5], 1):
-                message += f"{i}. {col['title']}\n"
-            send_whatsapp_message(phone, message)
+    # RETAIL - Custom Jewellery (Yes)
+    if 'yes' in button_id.lower():
+        message = f"Thank you {customer_name} for choosing us! 💍\n\nPlease Appointment book karein:"
+        send_appointment_button(phone, message)
     
-    elif button_text == "Yes - Custom":
-        message = "Great! Custom jewellery ke liye appointment book karein:\n\n"
-        message += "🔗 Book Appointment: https://a-jewel-studio-3.myshopify.com/pages/appointment\n\n"
-        message += "Humari team aapse jald hi contact karegi!"
-        send_whatsapp_message(phone, message)
+    # RETAIL - Browse Products (No)
+    elif 'no' in button_id.lower() or 'menu' in button_id.lower():
+        show_main_collections(phone, customer_name)
     
-    elif button_text == "No - Browse Products":
-        collections = get_shopify_collections()
-        if collections:
-            message = "📂 Our Collections:\n\n"
-            for i, col in enumerate(collections[:5], 1):
-                message += f"{i}. {col['title']}\n"
-            send_whatsapp_message(phone, message)
+    # Select Product Button
+    elif 'select_product' in button_id.lower():
+        collection_id = user_sessions.get(phone, {}).get('selected_collection')
+        if collection_id:
+            show_sub_collections(phone, collection_id)
 
-# ==================== RAZORPAY WEBHOOKS ====================
+def handle_list_response(phone, list_id, list_title):
+    """Handle list selection responses"""
+    
+    # Main Collection Selected
+    if 'collection_' in list_id:
+        collection_id = list_id.replace('collection_', '')
+        user_sessions[phone] = {'selected_collection': collection_id}
+        
+        message = f"You selected: {list_title}\n\nClick below to select products:"
+        send_whatsapp_buttons(phone, message, ["Select Product"])
+    
+    # Sub-Collection Selected - Show Catalogue
+    elif 'subcollection_' in list_id:
+        subcollection_id = list_id.replace('subcollection_', '')
+        
+        # Send catalogue
+        message = "Here's our catalogue for your selected category:"
+        send_whatsapp_buttons(phone, message, ["Catalogue"])
+        
+        # Store for later
+        user_sessions[phone]['subcollection'] = subcollection_id
+
+def show_main_collections(phone, customer_name):
+    """Show main collections list"""
+    collections = get_shopify_collections()
+    
+    if not collections:
+        send_whatsapp_message(phone, "Sorry, collections load nahi ho paye. Please try again later.")
+        return
+    
+    # Prepare list sections
+    rows = []
+    for col in collections[:10]:  # Max 10 items
+        rows.append({
+            "id": f"collection_{col['id']}",
+            "title": col['title'][:24],  # Max 24 chars
+            "description": col.get('body_html', '')[:72] if col.get('body_html') else ""
+        })
+    
+    sections = [{
+        "title": "Categories",
+        "rows": rows
+    }]
+    
+    send_list_message(
+        phone,
+        "A Jewel Studio",
+        f"Hello {customer_name}! Select a category:",
+        "Menu",
+        sections
+    )
+
+def show_sub_collections(phone, collection_id):
+    """Show sub-collections for selected main collection"""
+    products = get_collection_products(collection_id)
+    
+    if not products:
+        send_whatsapp_message(phone, "No products found in this category.")
+        return
+    
+    # Group by product type (sub-categories)
+    sub_categories = {}
+    for product in products:
+        product_type = product.get('product_type', 'Other')
+        if product_type not in sub_categories:
+            sub_categories[product_type] = []
+        sub_categories[product_type].append(product)
+    
+    # Prepare list
+    rows = []
+    for sub_cat, prods in list(sub_categories.items())[:10]:
+        rows.append({
+            "id": f"subcollection_{sub_cat}",
+            "title": sub_cat[:24],
+            "description": f"{len(prods)} products"
+        })
+    
+    sections = [{
+        "title": "Sub-Categories",
+        "rows": rows
+    }]
+    
+    send_list_message(
+        phone,
+        "Select Sub-Category",
+        "Choose a sub-category to view products:",
+        "Select Product",
+        sections
+    )
+
+def handle_order(phone, order_data):
+    """Handle catalogue order placement"""
+    customer = get_shopify_customer(phone)
+    
+    if not customer:
+        send_whatsapp_message(phone, "Please register first by sending 'Hi'")
+        return
+    
+    customer_name = customer.get('first_name', 'Customer')
+    customer_tags = customer.get('tags', '')
+    
+    # Extract order details
+    product_items = order_data.get('product_items', [])
+    
+    if 'B2B' in customer_tags or 'Wholesaler' in customer_tags:
+        # B2B - Payment Required
+        # Calculate total (dummy calculation - implement proper logic)
+        total_amount = len(product_items) * 1000  # Example
+        
+        # Generate payment link
+        payment_response = generate_razorpay_link(
+            total_amount,
+            customer_name,
+            phone,
+            f"ORDER_{phone}_{len(product_items)}"
+        )
+        
+        if payment_response.get('short_url'):
+            message = f"Thank you {customer_name}!\n\nTotal Amount: ₹{total_amount}\n\nPlease complete payment:"
+            send_payment_button(phone, message, payment_response['short_url'])
+        else:
+            send_whatsapp_message(phone, "Payment link generation failed. Please contact support.")
+    
+    else:
+        # RETAIL - No Payment, Manual Follow-up
+        message = f"Thank you {customer_name} for choosing your products! 💎\n\n"
+        message += "A Jewel Studio ki team aapse estimated cost, discounts, offers aur payment ki jankari ke liye jald hi contact karegi.\n\n"
+        message += f"Your Order Details:\n"
+        for item in product_items:
+            message += f"• {item.get('product_retailer_id', 'Product')}\n"
+        
+        send_whatsapp_message(phone, message)
+
+# ==================== PAYMENT WEBHOOKS ====================
 
 @app.route('/payment/callback', methods=['GET', 'POST'])
 def payment_callback():
@@ -287,6 +556,9 @@ def payment_callback():
     
     if request.method == 'GET':
         # Payment success redirect
+        payment_id = request.args.get('razorpay_payment_id')
+        payment_link_id = request.args.get('razorpay_payment_link_id')
+        
         return "Payment successful! Check WhatsApp for confirmation."
     
     if request.method == 'POST':
@@ -298,12 +570,21 @@ def payment_callback():
             payment_link = data['payload']['payment_link']['entity']
             customer_phone = payment_link['customer']['contact']
             
+            # Send success message with download link
             message = "✅ Payment Successful!\n\n"
-            message += "Thank you for your purchase! 💎\n\n"
-            message += "Design files aapke email pe bhej di gayi hain.\n\n"
-            message += "Download link: [Check your email]"
+            message += "Thank you for doing Business with A Jewel Studio! 💎\n\n"
+            message += "Aapki Design File aapke registered Email ID pe bhej di gayi hai.\n\n"
             
-            send_whatsapp_message(customer_phone, message)
+            download_link = f"https://{SHOPIFY_STORE}/account/orders"  # Example
+            send_download_button(customer_phone, message, download_link)
+        
+        elif data.get('event') == 'payment_link.cancelled' or data.get('event') == 'payment_link.expired':
+            # Payment failed
+            payment_link = data['payload']['payment_link']['entity']
+            customer_phone = payment_link['customer']['contact']
+            
+            message = "❌ Your Payment was not successful.\n\nPlease click the Pay Now button to retry:"
+            send_payment_button(customer_phone, message, payment_link['short_url'])
         
         return jsonify({"status": "ok"}), 200
 
