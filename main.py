@@ -242,12 +242,14 @@ def normalize_phone(phone):
     return phone
 
 def get_shopify_customer(phone):
-    formatted = normalize_phone(phone)
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-10/customers/search.json?query=phone:{formatted}"
-    response = requests.get(url, headers=SHOPIFY_HEADERS)
-    data = response.json()
-    if data.get('customers') and len(data['customers']) > 0:
-        return data['customers'][0]
+    """Check if customer exists in Shopify"""
+    # Try with + prefix first, then without
+    for phone_format in [f"+{phone}", phone]:
+        url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone_format}"
+        response = requests.get(url, headers=SHOPIFY_HEADERS)
+        data = response.json()
+        if data.get('customers') and len(data['customers']) > 0:
+            return data['customers'][0]
     return None
 
 def generate_razorpay_link(amount, customer_name, customer_phone, order_id):
