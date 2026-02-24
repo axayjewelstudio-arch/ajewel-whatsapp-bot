@@ -1,4 +1,4 @@
-# main.py - Basic Customer Check & Registration Flow
+# main.py - Customer Registration with Form Webhook
 
 from flask import Flask, request, jsonify
 import requests
@@ -50,6 +50,12 @@ def check_customer(phone):
 
 def create_customer(phone, name, email):
     """Create new customer in Shopify"""
+    # Format phone with +
+    if not phone.startswith('+'):
+        phone = '+' + phone
+    
+    print(f"👤 Creating customer: {name}, {email}, {phone}")
+    
     url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers.json"
     
     customer_data = {
@@ -64,9 +70,11 @@ def create_customer(phone, name, email):
     
     response = requests.post(url, headers=SHOPIFY_HEADERS, json=customer_data)
     
+    print(f"📥 Shopify response: {response.status_code}, {response.json()}")
+    
     if response.status_code == 201:
         return {'status': 'success', 'data': response.json()}
-    return {'status': 'error'}
+    return {'status': 'error', 'message': response.json()}
 
 # ========== WHATSAPP FUNCTIONS ==========
 
@@ -128,14 +136,16 @@ def send_signup_flow(phone):
     
     send_cta_button(phone, body_text, button_text, url)
 
-# ========== WEBHOOK ==========
+# ========== WEBHOOK ENDPOINTS ==========
 
 @app.route('/')
 def home():
     return "AJewel Bot Running! 🚀"
 
 @app.route('/webhook', methods=['GET', 'POST'])
-def webhook():
+def whatsapp_webhook():
+    """WhatsApp webhook - Handle incoming messages"""
+    
     # Verification (GET)
     if request.method == 'GET':
         mode = request.args.get('hub.mode')
@@ -197,6 +207,54 @@ def webhook():
             traceback.print_exc()
         
         return jsonify({"status": "ok"}), 200
+
+@app.route('/form-submit', methods=['POST'])
+def form_submit():
+    """Handle form submission from Join Us page"""
+    
+    print("=== FORM SUBMIT START ===")
+    
+    try:
+        # Get form data (adjust based on your form fields)
+        data = request.json if request.is_json else request.form.to_dict()
+        
+        print(f"Form data received: {data}")
+        
+        # Extract customer details
+        name = data.get('name') or data.get('full_name')
+        email = data.get('email')
+        phone = data.get('phone')
+        
+        print(f"Extracted: name={name}, email={email}, phone={phone}")
+        
+        if not phone:
+            return jsonify({"status": "error", "message": "Phone number required"}), 400
+        
+        # Create customer in Shopify
+        result = create_customer(phone, name, email)
+        
+        if result['status'] == 'success':
+            # Send WhatsApp confirmation
+            confirmation_msg = f"✅ Registration Successful!\n\nWelcome {name} to A Jewel Studio! 💎\n\nYour account has been created.\n\nType 'Hi' to start shopping!"
+            send_message(phone, confirmation_msg)
+            
+            print("✅ Customer created and confirmation sent")
+            
+            return jsonify({
+                "status": "success",
+                "message": "Registration successful! Check WhatsApp for confirmation."
+            }), 200
+        else:
+            print(f"❌ Customer creation failed: {result}")
+            return jsonify({
+                "status": "error",
+                "message": "Registration failed. Please try again."
+            }), 400
+    
+    except Exception as e:
+        print(f"❌ Form submit error: {e}")
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # ========== RUN ==========
 
