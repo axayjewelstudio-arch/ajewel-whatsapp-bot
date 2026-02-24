@@ -1,263 +1,135 @@
-# main.py - Customer Registration with Form Webhook
-
-from flask import Flask, request, jsonify
-import requests
-import os
-from dotenv import load_dotenv
-import json
-import traceback
-
-load_dotenv()
-app = Flask(__name__)
-
-# Environment Variables
-SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')
-SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
-WHATSAPP_TOKEN = os.getenv('ACCESS_TOKEN')
-WHATSAPP_PHONE_ID = os.getenv('PHONE_NUMBER_ID')
-VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
-
-# Shopify Headers
-SHOPIFY_HEADERS = {
-    'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-    'Content-Type': 'application/json'
-}
-
-# ========== SHOPIFY FUNCTIONS ==========
-
-def check_customer(phone):
-    """Check if customer exists in Shopify"""
-    # Format phone with +
-    if not phone.startswith('+'):
-        phone = '+' + phone
-    
-    print(f"🔍 Checking customer: {phone}")
-    
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
-    response = requests.get(url, headers=SHOPIFY_HEADERS)
-    data = response.json()
-    
-    print(f"📊 Shopify response: {data}")
-    
-    if data.get('customers') and len(data['customers']) > 0:
-        customer = data['customers'][0]
-        return {
-            'status': 'old',
-            'name': customer.get('first_name', 'Customer'),
-            'customer_id': customer.get('id')
+def check_customer_exists(phone):
+    """Check if customer exists in Shopify - flexible phone matching"""
+    try:
+        # Try multiple phone formats
+        phone_variants = [
+            phone,                           # +917600056655
+            phone.replace('+', ''),          # 917600056655
+            phone.replace('+91', ''),        # 7600056655
+            f"+91{phone.replace('+91', '').replace('+', '')}"  # Normalize to +91
+        ]
+        
+        print(f"🔍 Checking customer with variants: {phone_variants}")
+        
+        query = """
+        query($query: String!) {
+            customers(first: 10, query: $query) {
+                edges {
+                    node {
+                        id
+                        firstName
+                        lastName
+                        email
+                        phone
+                    }
+                }
+            }
         }
-    return {'status': 'new'}
+        """
+        
+        # Try each phone variant
+        for variant in phone_variants:
+            variables = {"query": f"phone:{variant}"}
+            response = requests.post(
+                SHOPIFY_GRAPHQL_URL,
+                json={'query': query, 'variables': variables},
+                headers=SHOPIFY_HEADERS
+            )
+            
+            print(f"📊 Shopify response for {variant}: {response.json()}")
+            
+            data = response.json().get('data', {})
+            customers = data.get('customers', {}).get('edges', [])
+            
+            if customers:
+                customer = customers[0]['node']
+                name = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
+                print(f"✅ Customer found: {name}")
+                return {
+                    'status': 'existing',
+                    'name': name or 'Valued Customer',
+                    'email': customer.get('email'),
+                    'phone': customer.get('phone')
+                }
+        
+        print("👤 Customer not found in any format")
+        return {'status': 'new'}
+        
+    except Exception as e:
+        print(f"❌ Error checking customer: {e}")
+        return {'status': 'new'}
 
-def create_customer(phone, name, email):
-    """Create new customer in Shopify"""
-    # Format phone with +
-    if not phone.startswith('+'):
-        phone = '+' + phone
-    
-    print(f"👤 Creating customer: {name}, {email}, {phone}")
-    
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers.json"
-    
-    customer_data = {
-        "customer": {
-            "phone": phone,
-            "first_name": name,
-            "email": email,
-            "verified_email": True,
-            "tags": "whatsapp-signup"
-        }
-    }
-    
-    response = requests.post(url, headers=SHOPIFY_HEADERS, json=customer_data)
-    
-    print(f"📥 Shopify response: {response.status_code}, {response.json()}")
-    
-    if response.status_code == 201:
-        return {'status': 'success', 'data': response.json()}
-    return {'status': 'error', 'message': response.json()}
 
-# ========== WHATSAPP FUNCTIONS ==========
-
-def send_message(phone, message):
-    """Send text message"""
-    print(f"📤 Sending message to {phone}: {message}")
+def send_greeting(phone, name):
+    """Send personalized greeting to existing customer"""
+    message = f"Hello {name}! 👋\n\nWelcome back to A.Jewel.Studio! 💎\n\nHow can we help you today?"
     
-    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {
-        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
-        'Content-Type': 'application/json'
-    }
     payload = {
         "messaging_product": "whatsapp",
         "to": phone,
         "type": "text",
         "text": {"body": message}
     }
-    response = requests.post(url, headers=headers, json=payload)
-    print(f"📥 WhatsApp response: {response.json()}")
+    
+    print(f"📤 Sending greeting to {name} at {phone}")
+    
+    response = requests.post(
+        WHATSAPP_API_URL,
+        headers=WHATSAPP_HEADERS,
+        json=payload
+    )
+    
+    print(f"📥 Greeting response: {response.json()}")
+    return response.json()
 
-def send_cta_button(phone, body_text, button_text, url):
-    """Send CTA URL button"""
-    print(f"📤 Sending CTA button to {phone}")
-    
-    whatsapp_url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {
-        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
-        'Content-Type': 'application/json'
-    }
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": phone,
-        "type": "interactive",
-        "interactive": {
-            "type": "cta_url",
-            "body": {"text": body_text},
-            "action": {
-                "name": "cta_url",
-                "parameters": {
-                    "display_text": button_text,
-                    "url": url
-                }
-            }
-        }
-    }
-    
-    response = requests.post(whatsapp_url, headers=headers, json=payload)
-    print(f"📥 Response: {response.json()}")
 
-def send_signup_flow(phone):
-    """Send signup button"""
-    print(f"📋 Sending signup button to {phone}")
-    
-    body_text = "Welcome to A Jewel Studio! 💎\n\nPlease complete your registration to continue."
-    button_text = "Join Us"
-    url = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
-    
-    send_cta_button(phone, body_text, button_text, url)
-
-# ========== WEBHOOK ENDPOINTS ==========
-
-@app.route('/')
-def home():
-    return "AJewel Bot Running! 🚀"
-
-@app.route('/webhook', methods=['GET', 'POST'])
-def whatsapp_webhook():
-    """WhatsApp webhook - Handle incoming messages"""
-    
-    # Verification (GET)
-    if request.method == 'GET':
-        mode = request.args.get('hub.mode')
-        token = request.args.get('hub.verify_token')
-        challenge = request.args.get('hub.challenge')
-        
-        if mode == 'subscribe' and token == VERIFY_TOKEN:
-            return challenge, 200
-        return 'Forbidden', 403
-    
-    # Message handling (POST)
-    if request.method == 'POST':
+# Update webhook handler
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
         data = request.json
-        
         print("=== DEBUG START ===")
         print(f"Received data: {data}")
         print("=== DEBUG END ===")
         
-        try:
-            entry = data.get('entry', [{}])[0]
-            changes = entry.get('changes', [{}])[0]
-            value = changes.get('value', {})
-            
-            # Check if messages exist
-            if 'messages' not in value:
-                print("⚠️ No messages - might be status update")
-                return jsonify({"status": "ok"}), 200
-            
-            message = value['messages'][0]
-            phone = message['from']
-            msg_type = message['type']
-            
-            print(f"📱 Phone: {phone}, Type: {msg_type}")
-            
-            # Text message: "hi"
-            if msg_type == 'text':
-                text = message['text']['body'].lower().strip()
-                print(f"💬 Text received: '{text}'")
-                
-                if text == 'hi':
-                    print("✅ Processing 'hi' command")
+        if 'entry' in data:
+            for entry in data['entry']:
+                for change in entry.get('changes', []):
+                    value = change.get('value', {})
                     
-                    # Check customer in Shopify
-                    result = check_customer(phone)
-                    print(f"👤 Customer check result: {result}")
-                    
-                    if result['status'] == 'new':
-                        print("🆕 New customer - sending signup button")
-                        send_signup_flow(phone)
-                    
-                    elif result['status'] == 'old':
-                        print("👋 Existing customer - sending welcome")
-                        name = result['name']
-                        welcome_msg = f"{name} We welcome You in A Jewel Studio 💎\n\nType Hi to Continue with us."
-                        send_message(phone, welcome_msg)
+                    if 'messages' in value:
+                        messages = value['messages']
+                        for message in messages:
+                            phone = message['from']
+                            msg_type = message.get('type')
+                            
+                            print(f"📱 Phone: {phone}, Type: {msg_type}")
+                            
+                            if msg_type == 'text':
+                                text = message['text']['body'].lower().strip()
+                                print(f"💬 Text received: '{text}'")
+                                
+                                if text == 'hi' or text == 'hello' or text == 'hey':
+                                    print(f"✅ Processing '{text}' command")
+                                    
+                                    # Check customer
+                                    print(f"🔍 Checking customer: +{phone}")
+                                    customer_status = check_customer_exists(f"+{phone}")
+                                    print(f"👤 Customer check result: {customer_status}")
+                                    
+                                    if customer_status['status'] == 'existing':
+                                        # Send personalized greeting
+                                        print(f"👋 Existing customer - sending greeting")
+                                        send_greeting(phone, customer_status['name'])
+                                    else:
+                                        # New customer - send signup button
+                                        print(f"🆕 New customer - sending signup button")
+                                        send_signup_button(phone)
+                    else:
+                        print("⚠️ No messages - might be status update")
         
-        except Exception as e:
-            print(f"❌ ERROR: {e}")
-            traceback.print_exc()
+        return jsonify({"status": "success"}), 200
         
-        return jsonify({"status": "ok"}), 200
-
-@app.route('/form-submit', methods=['POST'])
-def form_submit():
-    """Handle form submission from Join Us page"""
-    
-    print("=== FORM SUBMIT START ===")
-    
-    try:
-        # Get form data (adjust based on your form fields)
-        data = request.json if request.is_json else request.form.to_dict()
-        
-        print(f"Form data received: {data}")
-        
-        # Extract customer details
-        name = data.get('name') or data.get('full_name')
-        email = data.get('email')
-        phone = data.get('phone')
-        
-        print(f"Extracted: name={name}, email={email}, phone={phone}")
-        
-        if not phone:
-            return jsonify({"status": "error", "message": "Phone number required"}), 400
-        
-        # Create customer in Shopify
-        result = create_customer(phone, name, email)
-        
-        if result['status'] == 'success':
-            # Send WhatsApp confirmation
-            confirmation_msg = f"✅ Registration Successful!\n\nWelcome {name} to A Jewel Studio! 💎\n\nYour account has been created.\n\nType 'Hi' to start shopping!"
-            send_message(phone, confirmation_msg)
-            
-            print("✅ Customer created and confirmation sent")
-            
-            return jsonify({
-                "status": "success",
-                "message": "Registration successful! Check WhatsApp for confirmation."
-            }), 200
-        else:
-            print(f"❌ Customer creation failed: {result}")
-            return jsonify({
-                "status": "error",
-                "message": "Registration failed. Please try again."
-            }), 400
-    
     except Exception as e:
-        print(f"❌ Form submit error: {e}")
-        traceback.print_exc()
+        print(f"❌ Error in webhook: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-# ========== RUN ==========
-
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
