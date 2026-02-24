@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify
 import requests
 import os
 from dotenv import load_dotenv
+import json
 
 load_dotenv()
 app = Flask(__name__)
@@ -97,7 +98,7 @@ def send_signup_flow(phone):
                 "parameters": {
                     "flow_message_version": "3",
                     "flow_token": f"signup_{phone}",
-                    "flow_id": "YOUR_FLOW_ID",  # Meta Business Manager se milega
+                    "flow_id": "YOUR_FLOW_ID",
                     "flow_cta": "Sign Up",
                     "flow_action": "navigate",
                     "flow_action_payload": {"screen": "SIGNUP"}
@@ -130,6 +131,10 @@ def webhook():
     if request.method == 'POST':
         data = request.json
         
+        print("=== DEBUG START ===")
+        print(f"Received data: {data}")
+        print("=== DEBUG END ===")
+        
         try:
             message = data['entry'][0]['changes'][0]['value']['messages'][0]
             phone = message['from']
@@ -147,14 +152,6 @@ def webhook():
                         # New customer - send signup flow
                         send_signup_flow(phone)
                     
-                    if request.method == 'POST':
-                        data = request.json
-
-                        print("=== DEBUG START ===")
-                        print(f"Received data: {data}")
-                        print("=== DEBUG END ===")
-
-    
                     elif result['status'] == 'old':
                         # Old customer - welcome message
                         name = result['name']
@@ -164,17 +161,10 @@ def webhook():
             # Flow response: signup data
             elif msg_type == 'interactive':
                 interactive = message['interactive']
-
-                    except Exception as e:
-                        print(f"❌ ERROR: {e}")
-                        import traceback
-                        traceback.print_exc()
-
                 
                 if interactive.get('type') == 'nfm_reply':
                     # Flow submitted
                     flow_data = interactive['nfm_reply']['response_json']
-                    import json
                     form_data = json.loads(flow_data)
                     
                     # Extract data
@@ -189,7 +179,9 @@ def webhook():
                         send_message(phone, success_msg)
         
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"❌ ERROR: {e}")
+            import traceback
+            traceback.print_exc()
         
         return jsonify({"status": "ok"}), 200
 
