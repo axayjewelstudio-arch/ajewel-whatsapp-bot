@@ -5,6 +5,7 @@ import requests
 import os
 from dotenv import load_dotenv
 import json
+import traceback
 
 load_dotenv()
 app = Flask(__name__)
@@ -30,24 +31,13 @@ def check_customer(phone):
     if not phone.startswith('+'):
         phone = '+' + phone
     
+    print(f"🔍 Checking customer: {phone}")
+    
     url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
     response = requests.get(url, headers=SHOPIFY_HEADERS)
     data = response.json()
     
-    if data.get('customers') and len(data['customers']) > 0:
-        customer = data['customers'][0]
-        return {
-            'status': 'old',
-            'name': customer.get('first_name', 'Customer'),
-            'customer_id': customer.get('id')
-        }
-    return {'status': 'new'}
-
-def check_customer(phone):
-    """Check if customer exists in Shopify"""
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
-    response = requests.get(url, headers=SHOPIFY_HEADERS)
-    data = response.json()
+    print(f"📊 Shopify response: {data}")
     
     if data.get('customers') and len(data['customers']) > 0:
         customer = data['customers'][0]
@@ -82,6 +72,8 @@ def create_customer(phone, name, email):
 
 def send_message(phone, message):
     """Send text message"""
+    print(f"📤 Sending message to {phone}: {message}")
+    
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
         'Authorization': f'Bearer {WHATSAPP_TOKEN}',
@@ -93,10 +85,13 @@ def send_message(phone, message):
         "type": "text",
         "text": {"body": message}
     }
-    requests.post(url, headers=headers, json=payload)
+    response = requests.post(url, headers=headers, json=payload)
+    print(f"📥 WhatsApp response: {response.json()}")
 
 def send_signup_flow(phone):
     """Send WhatsApp Flow for signup"""
+    print(f"📋 Sending signup flow to {phone}")
+    
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
         'Authorization': f'Bearer {WHATSAPP_TOKEN}',
@@ -126,7 +121,8 @@ def send_signup_flow(phone):
         }
     }
     
-    requests.post(url, headers=headers, json=payload)
+    response = requests.post(url, headers=headers, json=payload)
+    print(f"📥 Flow response: {response.json()}")
 
 # ========== WEBHOOK ==========
 
@@ -159,20 +155,26 @@ def webhook():
             phone = message['from']
             msg_type = message['type']
             
+            print(f"📱 Phone: {phone}, Type: {msg_type}")
+            
             # Text message: "hi"
             if msg_type == 'text':
                 text = message['text']['body'].lower().strip()
+                print(f"💬 Text received: '{text}'")
                 
                 if text == 'hi':
+                    print("✅ Processing 'hi' command")
+                    
                     # Check customer in Shopify
                     result = check_customer(phone)
+                    print(f"👤 Customer check result: {result}")
                     
                     if result['status'] == 'new':
-                        # New customer - send signup flow
+                        print("🆕 New customer - sending signup flow")
                         send_signup_flow(phone)
                     
                     elif result['status'] == 'old':
-                        # Old customer - welcome message
+                        print("👋 Existing customer - sending welcome")
                         name = result['name']
                         welcome_msg = f"{name} We welcome You in A Jewel Studio 💎\n\nType Hi to Continue with us."
                         send_message(phone, welcome_msg)
@@ -182,6 +184,7 @@ def webhook():
                 interactive = message['interactive']
                 
                 if interactive.get('type') == 'nfm_reply':
+                    print("📝 Flow response received")
                     # Flow submitted
                     flow_data = interactive['nfm_reply']['response_json']
                     form_data = json.loads(flow_data)
@@ -189,6 +192,8 @@ def webhook():
                     # Extract data
                     name = form_data.get('full_name')
                     email = form_data.get('email')
+                    
+                    print(f"👤 Creating customer: {name}, {email}")
                     
                     # Save to Shopify
                     save_result = create_customer(phone, name, email)
@@ -199,7 +204,6 @@ def webhook():
         
         except Exception as e:
             print(f"❌ ERROR: {e}")
-            import traceback
             traceback.print_exc()
         
         return jsonify({"status": "ok"}), 200
