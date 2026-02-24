@@ -33,12 +33,7 @@ def check_customer(phone):
     
     print(f"🔍 Checking customer: {phone}")
     
-    # Shopify adds leading 0 after country code
-    phone_with_zero = phone[:3] + '0' + phone[3:]  # +910760...
-    
-    print(f"🔍 Searching with: {phone_with_zero}")
-    
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone_with_zero}"
+    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
     response = requests.get(url, headers=SHOPIFY_HEADERS)
     data = response.json()
     
