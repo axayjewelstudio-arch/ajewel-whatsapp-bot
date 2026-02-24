@@ -26,6 +26,25 @@ SHOPIFY_HEADERS = {
 
 def check_customer(phone):
     """Check if customer exists in Shopify"""
+    # Format phone with +
+    if not phone.startswith('+'):
+        phone = '+' + phone
+    
+    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
+    response = requests.get(url, headers=SHOPIFY_HEADERS)
+    data = response.json()
+    
+    if data.get('customers') and len(data['customers']) > 0:
+        customer = data['customers'][0]
+        return {
+            'status': 'old',
+            'name': customer.get('first_name', 'Customer'),
+            'customer_id': customer.get('id')
+        }
+    return {'status': 'new'}
+
+def check_customer(phone):
+    """Check if customer exists in Shopify"""
     url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
     response = requests.get(url, headers=SHOPIFY_HEADERS)
     data = response.json()
