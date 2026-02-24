@@ -89,40 +89,13 @@ def send_message(phone, message):
     print(f"📥 WhatsApp response: {response.json()}")
 
 def send_signup_flow(phone):
-    """Send WhatsApp Flow for signup"""
-    print(f"📋 Sending signup flow to {phone}")
+    """Send signup link via text message"""
+    print(f"📋 Sending signup link to {phone}")
     
-    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {
-        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
-        'Content-Type': 'application/json'
-    }
+    signup_url = f"https://{SHOPIFY_STORE}/account/register"
+    message = f"Welcome to A Jewel Studio! 💎\n\nPlease complete your registration:\n{signup_url}\n\nAfter signup, type 'Hi' again to continue."
     
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": phone,
-        "type": "interactive",
-        "interactive": {
-            "type": "flow",
-            "header": {"type": "text", "text": "Welcome to A Jewel Studio 💎"},
-            "body": {"text": "Please complete your registration"},
-            "footer": {"text": "Your data is secure"},
-            "action": {
-                "name": "flow",
-                "parameters": {
-                    "flow_message_version": "3",
-                    "flow_token": f"signup_{phone}",
-                    "flow_id": "1252356316835727",
-                    "flow_cta": "Sign Up",
-                    "flow_action": "navigate",
-                    "flow_action_payload": {"screen": "SIGNUP"}
-                }
-            }
-        }
-    }
-    
-    response = requests.post(url, headers=headers, json=payload)
-    print(f"📥 Flow response: {response.json()}")
+    send_message(phone, message)
 
 # ========== WEBHOOK ==========
 
@@ -170,7 +143,7 @@ def webhook():
                     print(f"👤 Customer check result: {result}")
                     
                     if result['status'] == 'new':
-                        print("🆕 New customer - sending signup flow")
+                        print("🆕 New customer - sending signup link")
                         send_signup_flow(phone)
                     
                     elif result['status'] == 'old':
@@ -178,29 +151,6 @@ def webhook():
                         name = result['name']
                         welcome_msg = f"{name} We welcome You in A Jewel Studio 💎\n\nType Hi to Continue with us."
                         send_message(phone, welcome_msg)
-            
-            # Flow response: signup data
-            elif msg_type == 'interactive':
-                interactive = message['interactive']
-                
-                if interactive.get('type') == 'nfm_reply':
-                    print("📝 Flow response received")
-                    # Flow submitted
-                    flow_data = interactive['nfm_reply']['response_json']
-                    form_data = json.loads(flow_data)
-                    
-                    # Extract data
-                    name = form_data.get('full_name')
-                    email = form_data.get('email')
-                    
-                    print(f"👤 Creating customer: {name}, {email}")
-                    
-                    # Save to Shopify
-                    save_result = create_customer(phone, name, email)
-                    
-                    if save_result['status'] == 'success':
-                        success_msg = f"Your Account Created Successfully.\n\n{name} We welcome You in A Jewel Studio 💎\n\nType Hi to Continue with us."
-                        send_message(phone, success_msg)
         
         except Exception as e:
             print(f"❌ ERROR: {e}")
