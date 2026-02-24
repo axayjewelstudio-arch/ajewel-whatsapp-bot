@@ -88,14 +88,45 @@ def send_message(phone, message):
     response = requests.post(url, headers=headers, json=payload)
     print(f"📥 WhatsApp response: {response.json()}")
 
+def send_cta_button(phone, body_text, button_text, url):
+    """Send CTA URL button"""
+    print(f"📤 Sending CTA button to {phone}")
+    
+    whatsapp_url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": body_text},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": button_text,
+                    "url": url
+                }
+            }
+        }
+    }
+    
+    response = requests.post(whatsapp_url, headers=headers, json=payload)
+    print(f"📥 Response: {response.json()}")
+
 def send_signup_flow(phone):
-    """Send signup link via text message"""
-    print(f"📋 Sending signup link to {phone}")
+    """Send signup button"""
+    print(f"📋 Sending signup button to {phone}")
     
-    signup_url = f"https://{SHOPIFY_STORE}/account/register"
-    message = f"Welcome to A Jewel Studio! 💎\n\nPlease complete your registration:\n{signup_url}\n\nAfter signup, type 'Hi' again to continue."
+    body_text = "Welcome to A Jewel Studio! 💎\n\nPlease complete your registration to continue."
+    button_text = "Join Us"
+    url = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
     
-    send_message(phone, message)
+    send_cta_button(phone, body_text, button_text, url)
 
 # ========== WEBHOOK ==========
 
@@ -143,7 +174,7 @@ def webhook():
                     print(f"👤 Customer check result: {result}")
                     
                     if result['status'] == 'new':
-                        print("🆕 New customer - sending signup link")
+                        print("🆕 New customer - sending signup button")
                         send_signup_flow(phone)
                     
                     elif result['status'] == 'old':
