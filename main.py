@@ -33,7 +33,12 @@ def check_customer(phone):
     
     print(f"🔍 Checking customer: {phone}")
     
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}"
+    # Shopify adds leading 0 after country code
+    phone_with_zero = phone[:3] + '0' + phone[3:]  # +910760...
+    
+    print(f"🔍 Searching with: {phone_with_zero}")
+    
+    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone_with_zero}"
     response = requests.get(url, headers=SHOPIFY_HEADERS)
     data = response.json()
     
@@ -155,7 +160,16 @@ def webhook():
         print("=== DEBUG END ===")
         
         try:
-            message = data['entry'][0]['changes'][0]['value']['messages'][0]
+            entry = data.get('entry', [{}])[0]
+            changes = entry.get('changes', [{}])[0]
+            value = changes.get('value', {})
+            
+            # Check if messages exist
+            if 'messages' not in value:
+                print("⚠️ No messages - might be status update")
+                return jsonify({"status": "ok"}), 200
+            
+            message = value['messages'][0]
             phone = message['from']
             msg_type = message['type']
             
