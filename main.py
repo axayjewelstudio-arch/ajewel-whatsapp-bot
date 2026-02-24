@@ -147,6 +147,14 @@ def webhook():
                         # New customer - send signup flow
                         send_signup_flow(phone)
                     
+                    if request.method == 'POST':
+                        data = request.json
+
+                        print("=== DEBUG START ===")
+                        print(f"Received data: {data}")
+                        print("=== DEBUG END ===")
+
+    
                     elif result['status'] == 'old':
                         # Old customer - welcome message
                         name = result['name']
@@ -156,6 +164,12 @@ def webhook():
             # Flow response: signup data
             elif msg_type == 'interactive':
                 interactive = message['interactive']
+
+                    except Exception as e:
+                        print(f"❌ ERROR: {e}")
+                        import traceback
+                        traceback.print_exc()
+
                 
                 if interactive.get('type') == 'nfm_reply':
                     # Flow submitted
