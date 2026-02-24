@@ -98,7 +98,7 @@ def send_signup_flow(phone):
                 "parameters": {
                     "flow_message_version": "3",
                     "flow_token": f"signup_{phone}",
-                    "flow_id": "YOUR_FLOW_ID",
+                    "flow_id": "1252356316835727",
                     "flow_cta": "Sign Up",
                     "flow_action": "navigate",
                     "flow_action_payload": {"screen": "SIGNUP"}
