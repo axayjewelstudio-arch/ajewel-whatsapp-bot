@@ -232,6 +232,29 @@ def verify_signature(data, signature):
 @app.route("/", methods=["GET"])
 def home():
     return "Bot Running"
+    try:
+        print("=== WEBHOOK DEBUG ===")
+        print(f"Full data: {data}")
+        
+        value = data["entry"][0]["changes"][0]["value"]
+        print(f"Value: {value}")
+        
+        # ✅ Fix: Check if messages exist
+        if "messages" not in value:
+            print("⚠️ No messages - status update")
+            return "No message event", 200
+        
+        print(f"Messages found: {value['messages']}")
+        
+        phone = value["contacts"][0]["wa_id"]
+        msg = value["messages"][0]
+        msg_type = msg["type"]
+        
+        print(f"📱 Phone: {phone}, Type: {msg_type}")
+        
+        if msg_type == "text":
+            text = msg["text"]["body"]
+            print(f"💬 Text: {text}")
 
 
 @app.route("/webhook", methods=["GET", "POST"])
