@@ -237,6 +237,12 @@ def home():
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     ...
+        phone = value["contacts"][0]["wa_id"]
+    msg = value["messages"][0]
+    msg_type = msg["type"]  # ✅ Yeh line add karo
+    
+    print(f"📱 Phone: {phone}, Type: {msg_type}")
+    
     if msg_type == "text":
         text = msg["text"]["body"]
         print(f"💬 Text: {text}")
