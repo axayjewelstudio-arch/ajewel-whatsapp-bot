@@ -1,15 +1,6 @@
 # -*- coding: utf-8 -*-
-"""
-WhatsApp Bot for AJewel Studio
-Flows:
-1️⃣ New Customer → Sign-Up → Welcome + Menu
-2️⃣ Existing Retail → Custom Jewellery → Yes/No
-3️⃣ B2B Wholesaler → Direct Catalog → Order → Razorpay Pay
-4️⃣ Razorpay webhook → Success / Failure → Download link
-"""
 
 import os
-import time
 import hashlib
 import hmac
 from flask import Flask, request, jsonify
@@ -20,9 +11,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# -------------------------------------------------
+# =================================================
 # CONFIG
-# -------------------------------------------------
+# =================================================
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
@@ -32,27 +23,29 @@ SHOPIFY_STORE = os.getenv("SHOPIFY_STORE")
 SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
 SHOPIFY_API_VERSION = os.getenv("SHOPIFY_API_VERSION", "2023-10")
 
-SHOPIFY_SITE = f"https://{SHOPIFY_STORE}/admin/api/{SHOPIFY_API_VERSION}"
-shopify.ShopifyResource.set_site(SHOPIFY_SITE)
-shopify.ShopifyResource.set_access_token(SHOPIFY_ACCESS_TOKEN)
-
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
 
-razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-
-APP_URL = os.getenv("APP_URL")
 PORT = int(os.getenv("PORT", 10000))
+
+# =================================================
+# INIT
+# =================================================
+app = Flask(__name__)
+
+shop_url = f"https://{SHOPIFY_STORE}/admin/api/{SHOPIFY_API_VERSION}"
+shopify.ShopifyResource.set_site(shop_url)
+shopify.ShopifyResource.set_access_token(SHOPIFY_ACCESS_TOKEN)
+
+razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 user_state = {}
 order_map = {}
 
-app = Flask(__name__)
-
-# -------------------------------------------------
+# =================================================
 # WhatsApp Send
-# -------------------------------------------------
+# =================================================
 def send_whatsapp(payload):
     url = f"https://graph.facebook.com/v20.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
@@ -62,7 +55,7 @@ def send_whatsapp(payload):
     requests.post(url, json=payload, headers=headers)
 
 
-def text_message(to, body):
+def send_text(to, body):
     send_whatsapp({
         "messaging_product": "whatsapp",
         "to": to,
@@ -71,7 +64,7 @@ def text_message(to, body):
     })
 
 
-def interactive_reply_buttons(to, body, buttons):
+def send_buttons(to, body, buttons):
     send_whatsapp({
         "messaging_product": "whatsapp",
         "to": to,
@@ -81,15 +74,14 @@ def interactive_reply_buttons(to, body, buttons):
             "body": {"text": body},
             "action": {
                 "buttons": [
-                    {"type": "reply", "reply": b}
-                    for b in buttons
+                    {"type": "reply", "reply": b} for b in buttons
                 ]
             }
         }
     })
 
 
-def interactive_cta_url(to, body, label, url_link):
+def send_cta(to, body, label, url):
     send_whatsapp({
         "messaging_product": "whatsapp",
         "to": to,
@@ -101,65 +93,60 @@ def interactive_cta_url(to, body, label, url_link):
                 "name": "cta_url",
                 "parameters": {
                     "display_text": label,
-                    "url": url_link
+                    "url": url
                 }
             }
         }
     })
 
 
-def catalog_message(to):
+def send_catalog(to):
     send_whatsapp({
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {
             "type": "catalog_message",
-            "body": {"text": "Browse our catalog below."},
+            "body": {"text": "Browse our jewellery collection below 👇"},
             "action": {
                 "name": "catalog_message",
                 "parameters": {
-                    "thumbnail_product_retailer_id": WHATSAPP_CATALOG_PRODUCT_RETAILER_ID
+                    "thumbnail_product_retailer_id":
+                        WHATSAPP_CATALOG_PRODUCT_RETAILER_ID
                 }
             }
         }
     })
 
-
-# -------------------------------------------------
+# =================================================
 # Shopify Helpers
-# -------------------------------------------------
+# =================================================
 def normalize(phone):
     return ''.join(filter(str.isdigit, phone))[-10:]
 
 
-def find_shopify_customer_by_phone(phone):
+def find_customer(phone):
     try:
-        # Try multiple phone formats
-        variants = [phone, f"+91{normalize(phone)}", normalize(phone)]
-        
-        for variant in variants:
-            customers = shopify.Customer.search(query=f"phone:{variant}")
-            for cust in customers:
-                if cust.phone and normalize(cust.phone) == normalize(phone):
-                    return cust
+        customers = shopify.Customer.search(query=f"phone:{phone}")
+        for c in customers:
+            if c.phone and normalize(c.phone) == normalize(phone):
+                return c
     except Exception as e:
         app.logger.error(f"Shopify error: {e}")
     return None
 
 
-def is_wholesaler(customer):
+def is_wholesale(customer):
     return "wholesale" in (customer.tags or "").lower()
 
-
-# -------------------------------------------------
+# =================================================
 # Razorpay
-# -------------------------------------------------
-def create_payment_link(amount_paise, phone, description):
+# =================================================
+def create_payment_link(amount, phone):
     data = {
-        "amount": amount_paise,
+        "amount": amount,
         "currency": "INR",
-        "description": description,
+        "description": "Jewellery Order Payment",
         "customer": {"phone": phone}
     }
     result = razorpay_client.payment_link.create(data)
@@ -181,14 +168,12 @@ def verify_signature(data, signature):
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
 
-
-# -------------------------------------------------
-# Routes
-# -------------------------------------------------
+# =================================================
+# ROUTES
+# =================================================
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot Running"
-
+    return "Bot Running Successfully"
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
@@ -196,95 +181,110 @@ def webhook():
     if request.method == "GET":
         if request.args.get("hub.verify_token") == VERIFY_TOKEN:
             return request.args.get("hub.challenge"), 200
-        return "Error", 403
+        return "Verification failed", 403
 
     data = request.get_json()
+
     if not data:
         return "No data", 200
 
     try:
         value = data["entry"][0]["changes"][0]["value"]
+
+        # 🔥 IMPORTANT FIX — Ignore status updates
+        if "messages" not in value:
+            return "Status ignored", 200
+
         phone = value["contacts"][0]["wa_id"]
         msg = value["messages"][0]
         msg_type = msg["type"]
 
-        # First time user
+        # First interaction
         if phone not in user_state:
-            cust = find_shopify_customer_by_phone(phone)
-            if not cust:
-                interactive_cta_url(
+            customer = find_customer(phone)
+
+            if not customer:
+                send_cta(
                     phone,
-                    "Welcome to A.Jewel.Studio! 💎\n\nPlease create your account to get started.",
-                    "Join Us",
-                    f"https://{SHOPIFY_STORE}/pages/join-us"
+                    "Please register first to continue.",
+                    "Sign Up",
+                    f"https://{SHOPIFY_STORE}/account/register"
                 )
                 user_state[phone] = {"flow": "new"}
                 return "New user", 200
-            else:
-                # Greeting with name
-                name = f"{cust.first_name or ''} {cust.last_name or ''}".strip() or "Valued Customer"
-                text_message(phone, f"Hello {name}! 👋\n\nWelcome back to A.Jewel.Studio! 💎")
-                
-                user_state[phone] = {"flow": "wholesale" if is_wholesaler(cust) else "retail"}
 
-                if is_wholesaler(cust):
-                    catalog_message(phone)
-                else:
-                    interactive_reply_buttons(
-                        phone,
-                        "Kya aap Custom Jewellery karvana chahte hain?",
-                        [
-                            {"id": "yes_custom", "title": "Yes"},
-                            {"id": "no_custom", "title": "No"}
-                        ]
-                    )
-                return "Existing user", 200
+            user_state[phone] = {
+                "flow": "wholesale" if is_wholesale(customer) else "retail"
+            }
+
+            if is_wholesale(customer):
+                send_catalog(phone)
+            else:
+                send_buttons(
+                    phone,
+                    "Kya aap Custom Jewellery karvana chahte hain?",
+                    [
+                        {"id": "yes_custom", "title": "Yes"},
+                        {"id": "no_custom", "title": "No"}
+                    ]
+                )
+            return "Existing user", 200
 
         state = user_state.get(phone)
 
-        # Button reply
+        # Button flow
         if msg_type == "button":
-            button_id = msg["button"]["payload"]
+            payload = msg["button"]["payload"]
 
             if state["flow"] == "retail":
-                if button_id == "yes_custom":
-                    interactive_cta_url(
+                if payload == "yes_custom":
+                    send_cta(
                         phone,
-                        "Book consultation below.",
+                        "Book consultation below 👇",
                         "Book Now",
                         f"https://{SHOPIFY_STORE}/products/custom-jewellery-consultation"
                     )
                 else:
-                    catalog_message(phone)
+                    send_catalog(phone)
 
-        # Order
+        # Order flow
         if msg_type == "order":
             items = msg["order"]["product_items"]
-            total = sum(float(i["item_price"]) * int(i["quantity"]) for i in items)
-            link = create_payment_link(int(total * 100), phone, "Order Payment")
-            interactive_cta_url(phone, f"Total ₹{total}", "Pay Now", link["short_url"])
+            total = sum(
+                float(i["item_price"]) * int(i["quantity"])
+                for i in items
+            )
+
+            payment = create_payment_link(int(total * 100), phone)
+
+            send_cta(
+                phone,
+                f"Total Amount: ₹{total}",
+                "Pay Now",
+                payment["short_url"]
+            )
 
         return "OK", 200
 
     except Exception as e:
         app.logger.error(str(e))
-        return "Error", 500
-
+        return "Server Error", 500
 
 @app.route("/payment/webhook", methods=["POST"])
 def payment_webhook():
+
     signature = request.headers.get("X-Razorpay-Signature")
     data = request.get_json()
 
     if not verify_signature(data, signature):
-        return "Invalid", 400
+        return "Invalid signature", 400
 
     phone = order_map.get(data.get("razorpay_payment_link_id"))
 
     if data.get("razorpay_payment_link_status") == "paid":
-        text_message(phone, "Payment Successful! 🎉")
+        send_text(phone, "Payment Successful 🎉 Thank you!")
     else:
-        text_message(phone, "Payment Failed. Please retry.")
+        send_text(phone, "Payment Failed ❌ Please try again.")
 
     return jsonify({"status": "ok"}), 200
 
