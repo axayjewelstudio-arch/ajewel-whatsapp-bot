@@ -8,3 +8,4 @@ ShopifyAPI
 pyactiveresource
 python-dotenv
 shopify-python-api
+pip install -r
