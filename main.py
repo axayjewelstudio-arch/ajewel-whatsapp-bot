@@ -236,6 +236,15 @@ def home():
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+    ...
+    if msg_type == "text":
+        text = msg["text"]["body"]
+        print(f"💬 Text: {text}")
+    
+    # First time user
+    if phone not in user_state:
+        ...
+
 
     if request.method == "GET":
         if request.args.get("hub.verify_token") == VERIFY_TOKEN:
