@@ -232,6 +232,20 @@ def verify_signature(data, signature):
 @app.route("/", methods=["GET"])
 def home():
     return "Bot Running"
+
+
+@app.route("/webhook", methods=["GET", "POST"])
+def webhook():
+
+    if request.method == "GET":
+        if request.args.get("hub.verify_token") == VERIFY_TOKEN:
+            return request.args.get("hub.challenge"), 200
+        return "Error", 403
+
+    data = request.get_json()
+    if not data:
+        return "No data", 200
+
     try:
         print("=== WEBHOOK DEBUG ===")
         print(f"Full data: {data}")
@@ -239,7 +253,7 @@ def home():
         value = data["entry"][0]["changes"][0]["value"]
         print(f"Value: {value}")
         
-        # ✅ Fix: Check if messages exist
+        # Check if messages exist
         if "messages" not in value:
             print("⚠️ No messages - status update")
             return "No message event", 200
@@ -256,34 +270,14 @@ def home():
             text = msg["text"]["body"]
             print(f"💬 Text: {text}")
 
-
-@app.route("/webhook", methods=["GET", "POST"])
-def webhook():
-
-    if request.method == "GET":
-        if request.args.get("hub.verify_token") == VERIFY_TOKEN:
-            return request.args.get("hub.challenge"), 200
-        return "Error", 403
-
-    data = request.get_json()
-    if not data:
-        return "No data", 200
-
-    try:
-        value = data["entry"][0]["changes"][0]["value"]
-        
-        # ✅ Fix: Check if messages exist
-        if "messages" not in value:
-            return "No message event", 200
-        
-        phone = value["contacts"][0]["wa_id"]
-        msg = value["messages"][0]
-        msg_type = msg["type"]
-
         # First time user
         if phone not in user_state:
+            print(f"🆕 New session for {phone}")
             cust = find_shopify_customer_by_phone(phone)
+            print(f"👤 Customer found: {cust is not None}")
+            
             if not cust:
+                print("📤 Sending Join Us button")
                 interactive_cta_url(
                     phone,
                     "Welcome to A.Jewel.Studio! 💎\n\nPlease create your account to get started.",
@@ -295,13 +289,16 @@ def webhook():
             else:
                 # Greeting with name
                 name = f"{cust.first_name or ''} {cust.last_name or ''}".strip() or "Valued Customer"
+                print(f"👋 Greeting customer: {name}")
                 text_message(phone, f"Hello {name}! 👋\n\nWelcome back to A.Jewel.Studio! 💎")
                 
                 user_state[phone] = {"flow": "wholesale" if is_wholesaler(cust) else "retail"}
 
                 if is_wholesaler(cust):
+                    print("📦 Sending catalog (wholesale)")
                     catalog_message(phone)
                 else:
+                    print("💍 Asking about custom jewellery (retail)")
                     interactive_reply_buttons(
                         phone,
                         "Kya aap Custom Jewellery karvana chahte hain?",
@@ -317,6 +314,7 @@ def webhook():
         # Button reply
         if msg_type == "button":
             button_id = msg["button"]["payload"]
+            print(f"🔘 Button clicked: {button_id}")
 
             if state["flow"] == "retail":
                 if button_id == "yes_custom":
@@ -331,6 +329,7 @@ def webhook():
 
         # Order
         if msg_type == "order":
+            print("🛒 Order received")
             items = msg["order"]["product_items"]
             total = sum(float(i["item_price"]) * int(i["quantity"]) for i in items)
             link = create_payment_link(int(total * 100), phone, "Order Payment")
@@ -339,6 +338,7 @@ def webhook():
         return "OK", 200
 
     except Exception as e:
+        print(f"❌ Error: {e}")
         app.logger.error(str(e))
         return "Error", 500
 
