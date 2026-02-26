@@ -9,4 +9,4 @@ google-auth-httplib2==0.1.1
 razorpay==1.4.1
 ShopifyAPI==12.4.0
 pyactiveresource==2.2.2
-shopify-python-api==1.1.0
+shopify-python-api==1.0.1
