@@ -1,4 +1,4 @@
-# AJewelBot v3 - WhatsApp Bot + Google Sheet Integration
+# AJewelBot v2 - WhatsApp Bot + Google Sheet Integration
 import os
 import json
 from flask import Flask, request, jsonify
@@ -20,7 +20,7 @@ GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
 
 # Logo ka publicly hosted URL (Shopify ya CDN pe upload karo)
 # Example: "https://cdn.shopify.com/s/files/.../A_Jewel_Studio.png"
-LOGO_IMAGE_URL = os.getenv('LOGO_IMAGE_URL', '')
+LOGO_IMAGE_URL = os.getenv('LOGO_IMAGE_URL', 'https://cdn.shopify.com/s/files/1/0815/3248/5868/files/A_Jewel_Studio.png?v=1771946995')
 
 SHEET_ID    = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
 JOIN_US_URL = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
