@@ -1,4 +1,4 @@
-# AJewelBot v2 - WhatsApp Bot + Google Sheet Integration
+# AJewelBot v3 - WhatsApp Bot + Google Sheet Integration
 import os
 import json
 from flask import Flask, request, jsonify
@@ -272,15 +272,11 @@ def webhook():
             # ── New Customer ──
             add_number_to_sheet(from_number)
 
-            # Step 1: Logo bhejo (agar URL set hai)
+            # Step 1: Logo bhejo — sirf image, koi caption nahi
             if LOGO_IMAGE_URL:
-                send_whatsapp_image(
-                    from_number,
-                    LOGO_IMAGE_URL,
-                    caption="A Jewel Studio ✨"
-                )
+                send_whatsapp_image(from_number, LOGO_IMAGE_URL, caption="")
 
-            # Step 2: Join Us button bhejo — URL mein WA number include karo
+            # Step 2: Welcome message + Join Us button
             join_url = f"{JOIN_US_URL}?wa={from_number}"
             body_text = (
                 "Welcome to *A Jewel Studio*! 💍\n\n"
