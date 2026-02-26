@@ -263,27 +263,39 @@ def webhook():
             # ── Existing Customer ──
             name = customer['name']
             if name:
-                reply = f"Welcome back, {name}! 💎\n\nHow can we help you today?"
+                caption = f"Welcome back, {name}.\n\nHow can we help you today?"
             else:
-                reply = "Welcome back! 💎\n\nHow can we help you today?"
-            send_whatsapp_text(from_number, reply)
+                caption = "Welcome back.\n\nHow can we help you today?"
+
+            # Logo + welcome caption (same style as new customer)
+            if LOGO_IMAGE_URL:
+                send_whatsapp_image(from_number, LOGO_IMAGE_URL, caption=caption)
+            else:
+                send_whatsapp_text(from_number, caption)
 
         else:
             # ── New Customer ──
             add_number_to_sheet(from_number)
 
-            # Step 1: Logo bhejo — sirf image, koi caption nahi
+            # Logo + Welcome caption
             if LOGO_IMAGE_URL:
-                send_whatsapp_image(from_number, LOGO_IMAGE_URL, caption="")
+                send_whatsapp_image(
+                    from_number,
+                    LOGO_IMAGE_URL,
+                    caption=(
+                        "Welcome to *A Jewel Studio*\n\n"
+                        "Join our community to get exclusive updates and offers."
+                    )
+                )
 
-            # Step 2: Welcome message + Join Us button
+            # Alag se Join Us button
             join_url = f"{JOIN_US_URL}?wa={from_number}"
-            body_text = (
-                "Welcome to *A Jewel Studio*! 💍\n\n"
-                "Join our community to get exclusive updates and offers.\n"
-                "Please fill in your details to get started 👇"
+            send_whatsapp_button(
+                from_number,
+                "Please fill in your details to get started.",
+                "Join Us",
+                join_url
             )
-            send_whatsapp_button(from_number, body_text, "Join Us ✨", join_url)
 
     except Exception as e:
         print(f"Webhook error: {e}")
