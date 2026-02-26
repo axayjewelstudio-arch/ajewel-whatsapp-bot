@@ -65,7 +65,7 @@ def check_customer_exists(phone_number):
         print(f"Error checking customer: {str(e)}")
         return {'exists': False, 'customer': None}
 
-# Line 61-100: Send WhatsApp message
+# Line 61-100: Send WhatsApp message (UPDATED)
 def send_whatsapp_message(to_number, message_text):
     """Send message via WhatsApp Business API"""
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
@@ -81,8 +81,17 @@ def send_whatsapp_message(to_number, message_text):
     }
     
     try:
+        print(f"Sending message to {to_number}: {message_text}")
         response = requests.post(url, json=payload, headers=headers)
-        return response.json()
+        result = response.json()
+        print(f"WhatsApp API Response: {result}")
+        
+        if response.status_code == 200:
+            print("Message sent successfully!")
+        else:
+            print(f"Error sending message: {result}")
+        
+        return result
     except Exception as e:
         print(f"Error sending WhatsApp message: {str(e)}")
         return None
