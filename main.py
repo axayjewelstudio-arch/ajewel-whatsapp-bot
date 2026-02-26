@@ -1,4 +1,4 @@
-# AJewelBot v2 - WhatsApp Bot + Auto Shopify Sync
+# AJewelBot v2 - WhatsApp Bot
 import os
 import json
 from flask import Flask, request, jsonify
@@ -6,16 +6,11 @@ import requests
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
-import threading
-import time
-import schedule
 
 load_dotenv()
 app = Flask(__name__)
 
 # Environment variables
-SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')
-SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID')
 VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
@@ -40,160 +35,48 @@ def get_google_sheet():
         print(f"Google Sheets Error: {str(e)}")
         return None
 
-# ========== SHOPIFY SYNC FUNCTIONS ==========
-
-def get_all_customers_from_shopify():
-    """Fetch all customers from Shopify"""
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json"
-    headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
-    }
-    
-    query = """
-    query getCustomers($cursor: String) {
-      customers(first: 50, after: $cursor) {
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        edges {
-          node {
-            id
-            firstName
-            lastName
-            phone
-            email
-            tags
-            defaultAddress {
-              address1
-              city
-              province
-            }
-          }
-        }
-      }
-    }
-    """
-    
-    all_customers = []
-    cursor = None
-    
-    try:
-        response = requests.post(url, json={"query": query, "variables": {"cursor": cursor}}, headers=headers)
-        data = response.json()
-        
-        if 'data' in data and 'customers' in data['data']:
-            edges = data['data']['customers']['edges']
-            for edge in edges:
-                all_customers.append(edge['node'])
-            print(f"Fetched {len(all_customers)} customers from Shopify")
-        
-        return all_customers
-    except Exception as e:
-        print(f"Shopify fetch error: {str(e)}")
-        return []
-
-def sync_shopify_to_sheet():
-    """Sync Shopify customers to Google Sheet"""
-    print("Starting Shopify to Sheet sync...")
-    
-    customers = get_all_customers_from_shopify()
-    if not customers:
-        print("No customers to sync")
-        return
-    
-    sheet = get_google_sheet()
-    if not sheet:
-        return
-    
-    try:
-        column_b = sheet.col_values(2)
-    except:
-        column_b = []
-    
-    updated = 0
-    added = 0
-    
-    for customer in customers:
-        phone = customer.get('phone', '')
-        if not phone:
-            continue
-        
-        first_name = customer.get('firstName', '')
-        last_name = customer.get('lastName', '')
-        full_name = f"{first_name} {last_name}".strip()
-        email = customer.get('email', '')
-        tags = ', '.join(customer.get('tags', []))
-        
-        customer_type = 'Retail'
-        if 'wholesale' in tags.lower():
-            customer_type = 'Wholesale'
-        
-        address_obj = customer.get('defaultAddress', {})
-        city = address_obj.get('city', '')
-        state = address_obj.get('province', '')
-        
-        if phone in column_b:
-            row_index = column_b.index(phone) + 1
-            try:
-                sheet.update(f'A{row_index}', [[full_name]])
-                sheet.update(f'C{row_index}', [[customer_type]])
-                sheet.update(f'E{row_index}', [[email]])
-                sheet.update(f'I{row_index}', [[city]])
-                sheet.update(f'J{row_index}', [[state]])
-                updated += 1
-            except:
-                pass
-        else:
-            try:
-                row = [full_name, phone, customer_type, phone, email, customer_type, '', '', city, state, tags, '', '', '']
-                sheet.append_row(row)
-                added += 1
-            except:
-                pass
-        
-        time.sleep(0.3)
-    
-    print(f"Sync complete! Updated: {updated}, Added: {added}")
-
-def run_scheduled_sync():
-    """Run sync every 3 hours"""
-    schedule.every(3).hours.do(sync_shopify_to_sheet)
-    
-    # Run immediately on start
-    sync_shopify_to_sheet()
-    
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
-
-# ========== WHATSAPP BOT FUNCTIONS ==========
-
-def get_customer_name_from_sheet(phone_number):
-    """Get customer name from Google Sheet"""
+def get_customer_from_sheet(phone_number):
+    """Get customer data from Google Sheet by phone number"""
     try:
         sheet = get_google_sheet()
         if sheet:
-            column_b = sheet.col_values(2)  # Phone numbers
-            if phone_number in column_b:
-                row_index = column_b.index(phone_number) + 1
-                column_a = sheet.col_values(1)  # Names
-                if len(column_a) >= row_index:
-                    name = column_a[row_index - 1]
-                    return {'exists': True, 'name': name}
-        return {'exists': False, 'name': None}
+            # Get all data
+            all_data = sheet.get_all_values()
+            
+            # Skip header row, search in data rows
+            for index, row in enumerate(all_data[1:], start=2):  # Start from row 2
+                # Column B (index 1) has phone number
+                if len(row) > 1 and row[1] == phone_number:
+                    customer_name = row[0] if len(row) > 0 else ''  # Column A
+                    print(f"Found customer: {customer_name} at row {index}")
+                    return {
+                        'exists': True,
+                        'name': customer_name,
+                        'row': index
+                    }
+            
+            print(f"Customer not found: {phone_number}")
+            return {'exists': False, 'name': None, 'row': None}
     except Exception as e:
         print(f"Sheet check error: {str(e)}")
-        return {'exists': False, 'name': None}
+        return {'exists': False, 'name': None, 'row': None}
 
 def add_number_to_sheet(phone_number):
-    """Add new number to Column B"""
+    """Add new number to Column B (only if not exists)"""
     try:
+        # First check if already exists
+        customer_data = get_customer_from_sheet(phone_number)
+        
+        if customer_data['exists']:
+            print(f"Number already exists, skipping: {phone_number}")
+            return False
+        
+        # Add new row
         sheet = get_google_sheet()
         if sheet:
-            sheet.append_row(['', phone_number])
-            print(f"Added number: {phone_number}")
+            # Add empty name in A, phone in B
+            sheet.append_row(['', phone_number, '', '', '', '', '', '', '', '', '', '', '', ''])
+            print(f"Added new number: {phone_number}")
             return True
     except Exception as e:
         print(f"Sheet add error: {str(e)}")
@@ -217,6 +100,8 @@ def send_whatsapp_text(to_number, message_text):
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code == 200:
             print(f"Message sent to {to_number}")
+        else:
+            print(f"Message failed: {response.json()}")
         return response.json()
     except Exception as e:
         print(f"WhatsApp error: {str(e)}")
@@ -255,7 +140,7 @@ def send_whatsapp_button(to_number, body_text, button_text, button_url):
             print(f"Button message sent to {to_number}")
             return response.json()
         else:
-            print(f"Button failed, sending text fallback")
+            print(f"Button failed: {response.json()}, sending text fallback")
             fallback_text = f"{body_text}\n\n{button_text}: {button_url}"
             return send_whatsapp_text(to_number, fallback_text)
     except Exception as e:
@@ -268,7 +153,7 @@ def home():
     return jsonify({
         "status": "running",
         "app": "AJewelBot v2",
-        "message": "WhatsApp bot with auto Shopify sync every 3 hours"
+        "message": "WhatsApp bot active"
     }), 200
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -306,15 +191,20 @@ def webhook():
                         print(f"Phone: {from_number}")
                         print(f"Message: {message_body}")
                         
-                        # Check if customer exists
-                        customer_data = get_customer_name_from_sheet(from_number)
+                        # Check if customer exists in Google Sheet
+                        customer_data = get_customer_from_sheet(from_number)
                         
                         if customer_data['exists']:
                             # Existing customer - welcome with name
                             customer_name = customer_data['name']
-                            print(f"EXISTING CUSTOMER: {customer_name}")
                             
-                            response_text = f"Welcome back {customer_name}!\n\nHow can we help you today?"
+                            if customer_name:
+                                print(f"EXISTING CUSTOMER: {customer_name}")
+                                response_text = f"Welcome back {customer_name}!\n\nHow can we help you today?"
+                            else:
+                                print(f"EXISTING CUSTOMER (no name)")
+                                response_text = "Welcome back!\n\nHow can we help you today?"
+                            
                             send_whatsapp_text(from_number, response_text)
                         else:
                             # New customer - add to sheet + send Join Us button
@@ -334,13 +224,92 @@ def webhook():
         
         return jsonify({"status": "ok"}), 200
 
-if __name__ == '__main__':
-    # Start background sync thread
-    sync_thread = threading.Thread(target=run_scheduled_sync, daemon=True)
-    sync_thread.start()
-    print("Background sync started - runs every 3 hours")
+# Webhook to receive Join Us form data
+@app.route('/join-us-webhook', methods=['POST'])
+def join_us_webhook():
+    """Receive data from Join Us page and update Google Sheet"""
+    try:
+        data = request.get_json()
+        
+        print("=" * 60)
+        print("JOIN US FORM SUBMITTED")
+        print("=" * 60)
+        
+        # Extract form data
+        phone = data.get('phone', '')
+        name = data.get('name', '')
+        email = data.get('email', '')
+        customer_type = data.get('customer_type', 'Retail')
+        gst_number = data.get('gst_number', '')
+        address = data.get('address', '')
+        city = data.get('city', '')
+        state = data.get('state', '')
+        gender = data.get('gender', '')
+        age_group = data.get('age_group', '')
+        
+        print(f"Phone: {phone}")
+        print(f"Name: {name}")
+        print(f"Email: {email}")
+        
+        if not phone:
+            return jsonify({"status": "error", "message": "Phone number required"}), 400
+        
+        # Find customer in sheet
+        customer_data = get_customer_from_sheet(phone)
+        
+        sheet = get_google_sheet()
+        if not sheet:
+            return jsonify({"status": "error", "message": "Sheet connection failed"}), 500
+        
+        if customer_data['exists']:
+            # Update existing row
+            row_index = customer_data['row']
+            
+            # Update columns A, C-N
+            sheet.update(f'A{row_index}', [[name]])  # A: Name
+            sheet.update(f'C{row_index}', [[customer_type]])  # C: Customer Type
+            sheet.update(f'D{row_index}', [[phone]])  # D: Phone
+            sheet.update(f'E{row_index}', [[email]])  # E: Email
+            sheet.update(f'F{row_index}', [[customer_type]])  # F: Customer Type
+            sheet.update(f'G{row_index}', [[gst_number]])  # G: GST Number
+            sheet.update(f'H{row_index}', [[address]])  # H: Address
+            sheet.update(f'I{row_index}', [[city]])  # I: City
+            sheet.update(f'J{row_index}', [[state]])  # J: State
+            sheet.update(f'M{row_index}', [[gender]])  # M: Gender
+            sheet.update(f'N{row_index}', [[age_group]])  # N: Age Group
+            
+            print(f"Updated row {row_index} for {name}")
+        else:
+            # Add new row
+            row = [
+                name,           # A
+                phone,          # B
+                customer_type,  # C
+                phone,          # D
+                email,          # E
+                customer_type,  # F
+                gst_number,     # G
+                address,        # H
+                city,           # I
+                state,          # J
+                '',             # K: Tags
+                '',             # L: Empty
+                gender,         # M
+                age_group       # N
+            ]
+            sheet.append_row(row)
+            print(f"Added new row for {name}")
+        
+        print("=" * 60)
+        
+        return jsonify({"status": "success", "message": "Data saved"}), 200
     
-    # Start Flask app
+    except Exception as e:
+        print(f"Join Us webhook error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     print(f"Starting AJewelBot v2 on port {port}...")
+    print("WhatsApp bot active - No Shopify sync")
     app.run(host='0.0.0.0', port=port, debug=False)
