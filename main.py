@@ -1,4 +1,4 @@
-# AJewelBot v2 - WhatsApp Bot
+# AJewelBot v2 - WhatsApp Bot Only
 import os
 import json
 from flask import Flask, request, jsonify
@@ -224,92 +224,8 @@ def webhook():
         
         return jsonify({"status": "ok"}), 200
 
-# Webhook to receive Join Us form data
-@app.route('/join-us-webhook', methods=['POST'])
-def join_us_webhook():
-    """Receive data from Join Us page and update Google Sheet"""
-    try:
-        data = request.get_json()
-        
-        print("=" * 60)
-        print("JOIN US FORM SUBMITTED")
-        print("=" * 60)
-        
-        # Extract form data
-        phone = data.get('phone', '')
-        name = data.get('name', '')
-        email = data.get('email', '')
-        customer_type = data.get('customer_type', 'Retail')
-        gst_number = data.get('gst_number', '')
-        address = data.get('address', '')
-        city = data.get('city', '')
-        state = data.get('state', '')
-        gender = data.get('gender', '')
-        age_group = data.get('age_group', '')
-        
-        print(f"Phone: {phone}")
-        print(f"Name: {name}")
-        print(f"Email: {email}")
-        
-        if not phone:
-            return jsonify({"status": "error", "message": "Phone number required"}), 400
-        
-        # Find customer in sheet
-        customer_data = get_customer_from_sheet(phone)
-        
-        sheet = get_google_sheet()
-        if not sheet:
-            return jsonify({"status": "error", "message": "Sheet connection failed"}), 500
-        
-        if customer_data['exists']:
-            # Update existing row
-            row_index = customer_data['row']
-            
-            # Update columns A, C-N
-            sheet.update(f'A{row_index}', [[name]])  # A: Name
-            sheet.update(f'C{row_index}', [[customer_type]])  # C: Customer Type
-            sheet.update(f'D{row_index}', [[phone]])  # D: Phone
-            sheet.update(f'E{row_index}', [[email]])  # E: Email
-            sheet.update(f'F{row_index}', [[customer_type]])  # F: Customer Type
-            sheet.update(f'G{row_index}', [[gst_number]])  # G: GST Number
-            sheet.update(f'H{row_index}', [[address]])  # H: Address
-            sheet.update(f'I{row_index}', [[city]])  # I: City
-            sheet.update(f'J{row_index}', [[state]])  # J: State
-            sheet.update(f'M{row_index}', [[gender]])  # M: Gender
-            sheet.update(f'N{row_index}', [[age_group]])  # N: Age Group
-            
-            print(f"Updated row {row_index} for {name}")
-        else:
-            # Add new row
-            row = [
-                name,           # A
-                phone,          # B
-                customer_type,  # C
-                phone,          # D
-                email,          # E
-                customer_type,  # F
-                gst_number,     # G
-                address,        # H
-                city,           # I
-                state,          # J
-                '',             # K: Tags
-                '',             # L: Empty
-                gender,         # M
-                age_group       # N
-            ]
-            sheet.append_row(row)
-            print(f"Added new row for {name}")
-        
-        print("=" * 60)
-        
-        return jsonify({"status": "success", "message": "Data saved"}), 200
-    
-    except Exception as e:
-        print(f"Join Us webhook error: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     print(f"Starting AJewelBot v2 on port {port}...")
-    print("WhatsApp bot active - No Shopify sync")
+    print("WhatsApp bot active")
     app.run(host='0.0.0.0', port=port, debug=False)
