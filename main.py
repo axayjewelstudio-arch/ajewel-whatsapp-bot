@@ -1,4 +1,4 @@
-# AJewelBot v2 - Simple Version (Only WhatsApp to Sheet)
+# AJewelBot v2 - Google Sheet Based (No Shopify)
 import os
 import json
 from flask import Flask, request, jsonify
@@ -6,20 +6,18 @@ import requests
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
 
 load_dotenv()
 app = Flask(__name__)
 
 # Environment variables
-SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')
-SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID')
 VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
 GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
 
 SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
+JOIN_US_LINK = "https://a-jewel-studio-3.myshopify.com/account/register"
 
 def get_google_sheet():
     """Connect to Google Sheet"""
@@ -37,63 +35,41 @@ def get_google_sheet():
         print(f"❌ Google Sheets Error: {str(e)}")
         return None
 
-def check_customer_exists(phone_number):
-    """Check customer in Shopify"""
-    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json"
-    headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
-    }
-    
-    if not phone_number.startswith('+'):
-        phone_number = f"+{phone_number}"
-    
-    query = """
-    query getCustomer($query: String!) {
-      customers(first: 1, query: $query) {
-        edges {
-          node {
-            id
-            firstName
-            lastName
-            phone
-            email
-          }
-        }
-      }
-    }
-    """
-    
-    variables = {"query": f"phone:{phone_number}"}
-    
-    try:
-        response = requests.post(url, json={"query": query, "variables": variables}, headers=headers)
-        data = response.json()
-        
-        if data.get('data', {}).get('customers', {}).get('edges'):
-            customer = data['data']['customers']['edges'][0]['node']
-            return {'exists': True, 'customer': customer}
-        else:
-            return {'exists': False, 'customer': None}
-    except Exception as e:
-        print(f"❌ Shopify Error: {str(e)}")
-        return {'exists': False, 'customer': None}
-
-def add_to_sheet(log_name, log_whatsapp):
-    """Add to Google Sheet - Only A & B columns"""
+def check_number_in_sheet(phone_number):
+    """Check if number exists in Column B"""
     try:
         sheet = get_google_sheet()
         if sheet:
-            row = [log_name, log_whatsapp]
-            sheet.append_row(row)
-            print(f"✅ Added to Sheet: {row}")
-            return True
+            # Get all values from column B
+            column_b = sheet.col_values(2)  # Column B (index 2)
+            
+            # Check if number exists
+            if phone_number in column_b:
+                row_index = column_b.index(phone_number) + 1
+                print(f"✅ Number found in row {row_index}")
+                return True
+            else:
+                print(f"❌ Number not found")
+                return False
     except Exception as e:
-        print(f"❌ Sheet error: {str(e)}")
+        print(f"❌ Sheet check error: {str(e)}")
     return False
 
-def send_whatsapp_message(to_number, message_text):
-    """Send WhatsApp message"""
+def add_number_to_sheet(phone_number):
+    """Add new number to Column B"""
+    try:
+        sheet = get_google_sheet()
+        if sheet:
+            # Add to next empty row in column B
+            sheet.append_row(['', phone_number])  # A is empty, B has number
+            print(f"✅ Added number to sheet: {phone_number}")
+            return True
+    except Exception as e:
+        print(f"❌ Sheet add error: {str(e)}")
+    return False
+
+def send_whatsapp_text(to_number, message_text):
+    """Send simple text message"""
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
@@ -109,18 +85,60 @@ def send_whatsapp_message(to_number, message_text):
     try:
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code == 200:
-            print(f"✅ WhatsApp sent")
+            print(f"✅ Message sent")
         return response.json()
     except Exception as e:
         print(f"❌ WhatsApp error: {str(e)}")
         return None
+
+def send_whatsapp_button(to_number, message_text, button_text, button_url):
+    """Send message with button"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": message_text
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "join_us",
+                            "title": button_text
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            print(f"✅ Button message sent")
+        return response.json()
+    except Exception as e:
+        print(f"❌ WhatsApp button error: {str(e)}")
+        # Fallback to text with link
+        fallback_text = f"{message_text}\n\n{button_text}: {button_url}"
+        return send_whatsapp_text(to_number, fallback_text)
 
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
         "status": "running",
         "app": "AJewelBot v2",
-        "message": "Bot active - Simple mode"
+        "message": "Google Sheet based bot"
     }), 200
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -158,32 +176,23 @@ def webhook():
                         print(f"📱 Phone: {from_number}")
                         print(f"💬 Message: {message_body}")
                         
-                        # Check customer
-                        result = check_customer_exists(from_number)
+                        # Check if number exists in Google Sheet
+                        number_exists = check_number_in_sheet(from_number)
                         
-                        if result['exists']:
-                            customer = result['customer']
-                            first_name = customer.get('firstName', '')
-                            last_name = customer.get('lastName', '')
-                            log_name = f"{first_name} {last_name}".strip()
-                            
-                            print(f"👤 Name: {log_name}")
-                            print(f"✅ OLD CUSTOMER")
-                            
-                            response_text = f"Yes ✅\n\nWelcome back {first_name}! 🙏"
+                        if number_exists:
+                            # Existing customer - Welcome message
+                            print(f"✅ EXISTING CUSTOMER")
+                            response_text = "Welcome back to A.Jewel.Studio! 🙏\n\nHow can we help you today?"
+                            send_whatsapp_text(from_number, response_text)
                         else:
-                            log_name = "New Customer"
-                            
-                            print(f"👤 Name: {log_name}")
+                            # New customer - Add to sheet + Join Us link
                             print(f"❌ NEW CUSTOMER")
+                            add_number_to_sheet(from_number)
                             
-                            response_text = "No ❌\n\nYou are a new customer. Welcome to A.Jewel.Studio! 👋"
-                        
-                        # Add to Google Sheet (A & B only)
-                        add_to_sheet(log_name, from_number)
-                        
-                        # Send WhatsApp reply
-                        send_whatsapp_message(from_number, response_text)
+                            response_text = "Welcome to A.Jewel.Studio! 👋\n\nWe're excited to have you here."
+                            button_text = "Join Us"
+                            
+                            send_whatsapp_button(from_number, response_text, button_text, JOIN_US_LINK)
                         
                         print("=" * 60)
         
