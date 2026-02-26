@@ -1,149 +1,163 @@
-@app.route("/webhook", methods=["GET", "POST"])
-def webhook():
+# Line 1-10: Imports
+import os
+from flask import Flask, request, jsonify
+import requests
+from dotenv import load_dotenv
 
-    if request.method == "GET":
-        if request.args.get("hub.verify_token") == VERIFY_TOKEN:
-            return request.args.get("hub.challenge"), 200
-        return "Error", 403
+load_dotenv()
 
-    data = request.get_json()
-    if not data:
-        return "No data", 200
+app = Flask(__name__)
 
+# Line 11-20: Environment variables
+SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')
+SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
+WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
+WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID')
+VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
+
+# Line 21-60: Check customer exists in Shopify
+def check_customer_exists(phone_number):
+    """Check if customer exists in Shopify by phone number"""
+    url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json"
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    
+    # Format phone number for Shopify (add +91 if not present)
+    if not phone_number.startswith('+'):
+        phone_number = f"+{phone_number}"
+    
+    query = """
+    query getCustomer($query: String!) {
+      customers(first: 1, query: $query) {
+        edges {
+          node {
+            id
+            firstName
+            lastName
+            phone
+            email
+            createdAt
+          }
+        }
+      }
+    }
+    """
+    
+    variables = {
+        "query": f"phone:{phone_number}"
+    }
+    
     try:
-        print("=== WEBHOOK DEBUG ===")
-        print(f"Full data: {data}")
+        response = requests.post(url, json={"query": query, "variables": variables}, headers=headers)
+        data = response.json()
         
-        value = data["entry"][0]["changes"][0]["value"]
-        print(f"Value: {value}")
-        
-        # Check if messages exist
-        if "messages" not in value:
-            print("⚠️ No messages - status update")
-            return "No message event", 200
-        
-        print(f"Messages found: {value['messages']}")
-        
-        phone = value["contacts"][0]["wa_id"]
-        msg = value["messages"][0]
-        msg_type = msg["type"]
-        
-        print(f"📱 Phone: {phone}, Type: {msg_type}")
-        
-        if msg_type == "text":
-            text = msg["text"]["body"]
-            print(f"💬 Text: {text}")
-
-        # First time user
-        if phone not in user_state:
-            print(f"🆕 New session for {phone}")
-            cust = find_shopify_customer_by_phone(phone)
-            print(f"👤 Customer found: {cust is not None}")
-            
-            if not cust:
-                print("📤 Sending Join Us button")
-                interactive_cta_url(
-                    phone,
-                    "Welcome to A.Jewel.Studio! 💎\n\nPlease create your account to get started.",
-                    "Join Us",
-                    f"https://{SHOPIFY_STORE}/pages/join-us"
-                )
-                user_state[phone] = {"flow": "new"}
-                return "New user", 200
-            else:
-                # Greeting with name
-                name = f"{cust.first_name or ''} {cust.last_name or ''}".strip() or "Valued Customer"
-                print(f"👋 Greeting customer: {name}")
-                text_message(phone, f"Hello {name}! 👋\n\nWelcome back to A.Jewel.Studio! 💎")
-                
-                user_state[phone] = {"flow": "wholesale" if is_wholesaler(cust) else "retail"}
-
-                if is_wholesaler(cust):
-                    print("📦 Sending catalog (wholesale)")
-                    catalog_message(phone)
-                else:
-                    print("💍 Asking about custom jewellery (retail)")
-                    interactive_reply_buttons(
-                        phone,
-                        "Kya aap Custom Jewellery karvana chahte hain?",
-                        [
-                            {"id": "yes_custom", "title": "Yes"},
-                            {"id": "no_custom", "title": "No"}
-                        ]
-                    )
-                return "Existing user", 200
-
-        state = user_state.get(phone)
-
-        # Button reply
-        if msg_type == "button":
-            button_id = msg["button"]["payload"]
-            print(f"🔘 Button clicked: {button_id}")
-
-            if state["flow"] == "retail":
-                if button_id == "yes_custom":
-                    interactive_cta_url(
-                        phone,
-                        "Book consultation below.",
-                        "Book Now",
-                        f"https://{SHOPIFY_STORE}/products/custom-jewellery-consultation"
-                    )
-                else:
-                    catalog_message(phone)
-@app.route("/payment/webhook", methods=["POST"])
-def payment_webhook():
-    signature = request.headers.get("X-Razorpay-Signature")
-    data = request.get_json()
-
-    if not verify_signature(data, signature):
-        return "Invalid", 400
-
-    phone = order_map.get(data.get("razorpay_payment_link_id"))
-
-    if data.get("razorpay_payment_link_status") == "paid":
-        text_message(phone, "Payment Successful! 🎉")
-    else:
-        text_message(phone, "Payment Failed. Please retry.")
-
-
-    @app.route("/payment/webhook", methods=["POST"])
-def payment_webhook():
-    signature = request.headers.get("X-Razorpay-Signature")
-    data = request.get_json()
-
-    if not verify_signature(data, signature):
-        return "Invalid", 400
-
-    phone = order_map.get(data.get("razorpay_payment_link_id"))
-
-    if data.get("razorpay_payment_link_status") == "paid":
-        text_message(phone, "Payment Successful! 🎉")
-    else:
-        text_message(phone, "Payment Failed. Please retry.")
-
-    return jsonify({"status": "ok"}), 200
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
-
-    return jsonify({"status": "ok"}), 200
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
-
-        # Order
-        if msg_type == "order":
-            print("🛒 Order received")
-            items = msg["order"]["product_items"]
-            total = sum(float(i["item_price"]) * int(i["quantity"]) for i in items)
-            link = create_payment_link(int(total * 100), phone, "Order Payment")
-            interactive_cta_url(phone, f"Total ₹{total}", "Pay Now", link["short_url"])
-
-        return "OK", 200
-
+        if data.get('data', {}).get('customers', {}).get('edges'):
+            customer = data['data']['customers']['edges'][0]['node']
+            return {
+                'exists': True,
+                'customer': customer
+            }
+        else:
+            return {'exists': False, 'customer': None}
     except Exception as e:
-        print(f"❌ Error: {e}")
-        app.logger.error(str(e))
-        return "Error", 500
+        print(f"Error checking customer: {str(e)}")
+        return {'exists': False, 'customer': None}
+
+# Line 61-100: Send WhatsApp message
+def send_whatsapp_message(to_number, message_text):
+    """Send message via WhatsApp Business API"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "text": {"body": message_text}
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        return response.json()
+    except Exception as e:
+        print(f"Error sending WhatsApp message: {str(e)}")
+        return None
+
+# Line 101-150: WhatsApp webhook endpoint
+@app.route('/webhook', methods=['GET', 'POST'])
+def webhook():
+    if request.method == 'GET':
+        # Verification for WhatsApp webhook
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+        
+        if mode == 'subscribe' and token == VERIFY_TOKEN:
+            print("Webhook verified successfully!")
+            return challenge, 200
+        else:
+            print("Webhook verification failed!")
+            return 'Forbidden', 403
+    
+    elif request.method == 'POST':
+        # Handle incoming WhatsApp messages
+        data = request.get_json()
+        
+        try:
+            # Extract message details
+            if 'entry' in data:
+                entry = data['entry'][0]
+                changes = entry['changes'][0]
+                value = changes['value']
+                
+                # Check if message exists
+                if 'messages' in value:
+                    message = value['messages'][0]
+                    from_number = message['from']
+                    
+                    # Check if it's a text message
+                    if message['type'] == 'text':
+                        message_body = message['text']['body']
+                        
+                        print(f"Received message from {from_number}: {message_body}")
+                        
+                        # Check if customer exists in Shopify
+                        result = check_customer_exists(from_number)
+                        
+                        if result['exists']:
+                            # Old customer - Reply "Yes"
+                            customer = result['customer']
+                            customer_name = customer.get('firstName', 'Customer')
+                            response_text = f"Yes ✅\n\nWelcome back {customer_name}! 🙏"
+                            print(f"Old customer found: {customer_name}")
+                        else:
+                            # New customer - Reply "No"
+                            response_text = "No ❌\n\nYou are a new customer. Welcome to A.Jewel.Studio! 👋"
+                            print(f"New customer: {from_number}")
+                        
+                        # Send WhatsApp reply
+                        send_whatsapp_message(from_number, response_text)
+        
+        except Exception as e:
+            print(f"Error processing webhook: {str(e)}")
+        
+        return jsonify({"status": "ok"}), 200
+
+# Line 151-160: Health check endpoint
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        "status": "running",
+        "app": "AJewelBot v2",
+        "message": "WhatsApp bot is active"
+    }), 200
+
+# Line 161-165: Run the app
+if __name__ == '__main__':
+    port = int(os.getenv('PORT', 5000))
+    print(f"Starting AJewelBot on port {port}...")
+    app.run(host='0.0.0.0', port=port, debug=True)
