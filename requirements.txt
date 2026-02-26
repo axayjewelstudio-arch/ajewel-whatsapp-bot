@@ -1,10 +1,10 @@
-flask
-requests
+Flask==3.0.0
+requests==2.31.0
 gunicorn
 gspread
 google-auth
 razorpay
 ShopifyAPI
 pyactiveresource
-python-dotenv
+python-dotenv==1.0.0
 shopify-python-api
