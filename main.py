@@ -281,7 +281,7 @@ def webhook():
                     LOGO_IMAGE_URL,
                     caption=(
                         "Welcome to *A Jewel Studio*\n\n"
-                        "Join our community to get exclusive updates and offers."
+                        ""
                     )
                 )
 
@@ -289,7 +289,7 @@ def webhook():
             join_url = f"{JOIN_US_URL}?wa={from_number}"
             send_whatsapp_button(
                 from_number,
-                "Please fill in your details to get started.",
+                "Join our community.",
                 "Join Us",
                 join_url
             )
