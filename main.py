@@ -259,23 +259,20 @@ def webhook():
 
         customer = get_customer_from_sheet(from_number)
 
-        if customer['exists']:
-            # ── Existing Customer ──
+        if customer['exists'] and customer['name']:
+            # ── Existing Customer (name hai = form bhara hua hai) ──
             name = customer['name']
-            if name:
-                caption = f"Welcome back, {name}.\n\nHow can we help you today?"
-            else:
-                caption = "Welcome back.\n\nHow can we help you today?"
-
-            # Logo + welcome caption (same style as new customer)
+            caption = f"Welcome back, {name}.\n\nHow can we help you today?"
             if LOGO_IMAGE_URL:
                 send_whatsapp_image(from_number, LOGO_IMAGE_URL, caption=caption)
             else:
                 send_whatsapp_text(from_number, caption)
 
         else:
-            # ── New Customer ──
-            add_number_to_sheet(from_number)
+            # ── New Customer ya form pending ──
+            # Number nahi tha to save karo, tha to skip (already saved)
+            if not customer['exists']:
+                add_number_to_sheet(from_number)
 
             # Logo + Welcome caption
             if LOGO_IMAGE_URL:
@@ -288,7 +285,7 @@ def webhook():
                     )
                 )
 
-            # Alag se Join Us button
+            # Join Us button
             join_url = f"{JOIN_US_URL}?wa={from_number}"
             send_whatsapp_button(
                 from_number,
