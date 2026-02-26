@@ -105,6 +105,28 @@ def payment_webhook():
     else:
         text_message(phone, "Payment Failed. Please retry.")
 
+
+    @app.route("/payment/webhook", methods=["POST"])
+def payment_webhook():
+    signature = request.headers.get("X-Razorpay-Signature")
+    data = request.get_json()
+
+    if not verify_signature(data, signature):
+        return "Invalid", 400
+
+    phone = order_map.get(data.get("razorpay_payment_link_id"))
+
+    if data.get("razorpay_payment_link_status") == "paid":
+        text_message(phone, "Payment Successful! 🎉")
+    else:
+        text_message(phone, "Payment Failed. Please retry.")
+
+    return jsonify({"status": "ok"}), 200
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)
+
     return jsonify({"status": "ok"}), 200
 
 
