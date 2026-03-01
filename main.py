@@ -62,7 +62,7 @@ def add_number_to_sheet(phone_number):
         sheet = get_google_sheet()
         if sheet:
             # A=Name(blank), B=Phone Log, C..N=blank
-            sheet.append_row(['', phone_number, '', '', '', '', '', '', '', '', '', '', '', ''])
+            sheet.append_row([phone_number, '', '', '', '', '', '', '', '', '', '', '', ''])
             print(f"New number added: {phone_number}")
             return True
     except Exception as e:
