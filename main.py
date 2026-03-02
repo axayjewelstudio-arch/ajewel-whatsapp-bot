@@ -1,4 +1,7 @@
-# AJewelBot v3 - WhatsApp Bot with Flow Support
+# ═══════════════════════════════════════════════════════════
+# AJewelBot v3 - WhatsApp Bot with Complete Flow Support
+# ═══════════════════════════════════════════════════════════
+
 import os
 import json
 from flask import Flask, request, jsonify
@@ -22,8 +25,12 @@ LOGO_IMAGE_URL = os.getenv('LOGO_IMAGE_URL', 'https://cdn.shopify.com/s/files/1/
 SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
 JOIN_US_URL = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
 CUSTOMER_CARE_NUMBER = "7600056655"
+BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'https://ajewelbot-v2-backend.onrender.com/api')
 
-# ── Google Sheet Connection ──
+# ═══════════════════════════════════════════════════════════
+# GOOGLE SHEETS CONNECTION
+# ═══════════════════════════════════════════════════════════
+
 def get_google_sheet():
     try:
         creds_dict = json.loads(GOOGLE_CREDENTIALS)
@@ -37,13 +44,18 @@ def get_google_sheet():
     except Exception as e:
         print(f"Google Sheets Error: {e}")
         return None
-# ── Check Customer Status ──
+
+# ═══════════════════════════════════════════════════════════
+# CUSTOMER STATUS CHECK
+# ═══════════════════════════════════════════════════════════
+
 def check_customer_status(phone_number):
     """
     Check customer in Google Sheet:
     - Column A: WhatsApp number
     - Column B: Gender (if filled, form completed)
     - Column Z: Customer Type (Retail/B2B)
+    - Column AO: Note (contains name)
     """
     try:
         sheet = get_google_sheet()
@@ -77,7 +89,6 @@ def check_customer_status(phone_number):
         print(f"Sheet check error: {e}")
         return {'exists': False}
 
-# ── Add Number to Column A (No Duplicates) ──
 def add_number_to_sheet(phone_number):
     """
     Add new number to Column A only (if not exists)
@@ -97,7 +108,11 @@ def add_number_to_sheet(phone_number):
     except Exception as e:
         print(f"Sheet add error: {e}")
     return False
-# ── WhatsApp: Send Text ──
+
+# ═══════════════════════════════════════════════════════════
+# WHATSAPP SEND FUNCTIONS
+# ═══════════════════════════════════════════════════════════
+
 def send_whatsapp_text(to_number, message_text):
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
@@ -117,7 +132,6 @@ def send_whatsapp_text(to_number, message_text):
         print(f"WhatsApp text error: {e}")
         return None
 
-# ── WhatsApp: Send Image ──
 def send_whatsapp_image(to_number, image_url, caption=''):
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
@@ -141,7 +155,6 @@ def send_whatsapp_image(to_number, image_url, caption=''):
         print(f"WhatsApp image error: {e}")
         return None
 
-# ── WhatsApp: Send Interactive Buttons ──
 def send_whatsapp_buttons(to_number, body_text, buttons):
     """
     Send interactive buttons (max 3 buttons)
@@ -177,7 +190,6 @@ def send_whatsapp_buttons(to_number, body_text, buttons):
         button_text = "\n".join([f"{i+1}. {btn['title']}" for i, btn in enumerate(buttons)])
         return send_whatsapp_text(to_number, f"{body_text}\n\n{button_text}")
 
-# ── WhatsApp: Send CTA URL Button ──
 def send_whatsapp_cta_button(to_number, body_text, button_text, button_url):
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
@@ -213,7 +225,11 @@ def send_whatsapp_cta_button(to_number, body_text, button_text, button_url):
         print(f"WhatsApp CTA button error: {e}")
         fallback = f"{body_text}\n\n{button_text}: {button_url}"
         return send_whatsapp_text(to_number, fallback)
-# ── FLOW 1: New Customer Welcome ──
+
+# ═══════════════════════════════════════════════════════════
+# FLOW MESSAGES - NEW CUSTOMER
+# ═══════════════════════════════════════════════════════════
+
 def send_new_customer_welcome(to_number):
     """
     Flow 1: New customer first visit
@@ -235,7 +251,10 @@ def send_new_customer_welcome(to_number):
         join_url
     )
 
-# ── FLOW 2A: Welcome Retail Customer ──
+# ═══════════════════════════════════════════════════════════
+# FLOW MESSAGES - RETURNING CUSTOMER
+# ═══════════════════════════════════════════════════════════
+
 def send_retail_welcome(to_number, customer_name):
     """
     Flow 2A: Returning retail customer
@@ -250,7 +269,6 @@ def send_retail_welcome(to_number, customer_name):
     
     send_whatsapp_buttons(to_number, message, buttons)
 
-# ── FLOW 2B: Welcome B2B Customer ──
 def send_b2b_welcome(to_number, customer_name):
     """
     Flow 2B: Returning B2B customer
@@ -265,7 +283,6 @@ def send_b2b_welcome(to_number, customer_name):
     
     send_whatsapp_buttons(to_number, message, buttons)
 
-# ── Complete Registration Message ──
 def send_complete_registration(to_number):
     """
     Customer logged but form not completed
@@ -279,7 +296,11 @@ def send_complete_registration(to_number):
         "Complete Registration",
         join_url
     )
-# ── Connect with Us Button ──
+
+# ═══════════════════════════════════════════════════════════
+# FLOW MESSAGES - SUPPORT
+# ═══════════════════════════════════════════════════════════
+
 def send_connect_with_us(to_number, message_text):
     """
     Send message with Connect with Us button
@@ -289,7 +310,6 @@ def send_connect_with_us(to_number, message_text):
     ]
     send_whatsapp_buttons(to_number, message_text, buttons)
 
-# ── Unrecognised Message (Fallback) ──
 def send_unrecognised_message(to_number, customer_type='Retail'):
     """
     Flow 14: Unrecognised message fallback
@@ -311,7 +331,6 @@ def send_unrecognised_message(to_number, customer_type='Retail'):
     
     send_whatsapp_buttons(to_number, message, buttons)
 
-# ── Business Hours ──
 def send_business_hours(to_number):
     """
     F47: Business hours enquiry
@@ -325,7 +344,6 @@ For support outside these hours, please leave a message and our team will respon
     
     send_whatsapp_text(to_number, message)
 
-# ── About A Jewel Studio ──
 def send_about_us(to_number):
     """
     F48: About A Jewel Studio
@@ -340,7 +358,11 @@ Our designs are crafted with precision and made available through a network of a
     ]
     
     send_whatsapp_buttons(to_number, message, buttons)
-# ── Keyword Detection ──
+
+# ═══════════════════════════════════════════════════════════
+# KEYWORD DETECTION
+# ═══════════════════════════════════════════════════════════
+
 def detect_keyword(message_text):
     """
     Detect keywords in customer message
@@ -393,7 +415,11 @@ def detect_keyword(message_text):
         return 'return_policy'
     
     return None
-# ── Handle Button Clicks ──
+
+# ═══════════════════════════════════════════════════════════
+# BUTTON CLICK HANDLER
+# ═══════════════════════════════════════════════════════════
+
 def handle_button_click(button_id, from_number, customer_type='Retail'):
     """
     Handle interactive button clicks
@@ -439,7 +465,11 @@ def handle_button_click(button_id, from_number, customer_type='Retail'):
     else:
         # Unknown button
         send_unrecognised_message(from_number, customer_type)
-# ── Routes ──
+
+# ═══════════════════════════════════════════════════════════
+# ROUTES
+# ═══════════════════════════════════════════════════════════
+
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({"status": "running", "app": "AJewelBot v3"}), 200
@@ -553,8 +583,14 @@ def webhook():
     print("=" * 60)
     return jsonify({"status": "ok"}), 200
 
-# ── Run ──
+# ═══════════════════════════════════════════════════════════
+# RUN
+# ═══════════════════════════════════════════════════════════
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     print(f"Starting AJewelBot v3 on port {port}...")
+    print("✅ WhatsApp Bot Active")
+    print("✅ Google Sheets Connected")
+    print("✅ Backend API Ready")
     app.run(host='0.0.0.0', port=port, debug=False)
