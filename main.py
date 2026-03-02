@@ -1,909 +1,1231 @@
-# main.py - AJewelBot v2 WhatsApp Bot - 70 Features
-# Part 1: Imports and Configuration
+# ═══════════════════════════════════════════════════════════
+# AJewelBot v3 - Professional WhatsApp Commerce Bot
+# Complete Flow Architecture with Session Management
+# ═══════════════════════════════════════════════════════════
 
-from flask import Flask, request, jsonify
-import requests
 import os
-from dotenv import load_dotenv
 import json
-import threading
 import time
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import requests
+from dotenv import load_dotenv
+import gspread
+from google.oauth2.service_account import Credentials
 
 load_dotenv()
-
 app = Flask(__name__)
+CORS(app)
 
-# ==================== ENVIRONMENT VARIABLES ====================
-
-SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')
-SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
+# ── Environment Variables ──
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
 WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID')
 VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
+GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
+SHOPIFY_STORE = os.getenv('SHOPIFY_STORE', 'a-jewel-studio-3.myshopify.com')
+SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
 RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID')
 RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET')
-BACKEND_URL = os.getenv('BACKEND_URL', 'https://ajewelbot-v2-backend.onrender.com')
 
-# Shopify API Headers
-SHOPIFY_HEADERS = {
-    'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-    'Content-Type': 'application/json'
-}
+# ── URLs ──
+SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
+JOIN_US_URL = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
+BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'https://ajewelbot-v2-backend.onrender.com/api')
+WHATSAPP_CATALOG_ID = os.getenv('WHATSAPP_CATALOG_ID', '')
+LOGO_IMAGE_URL = 'https://a-jewel-studio-3.myshopify.com/cdn/shop/files/A_Jewel_Studio.png?v=1771946995&width=130'
 
-# User session storage (in-memory)
+# ── Session Storage (In-memory) ──
 user_sessions = {}
+SESSION_TIMEOUT = 1800  # 30 minutes
 
-# Google Sheets logging for WhatsApp numbers
-google_sheets_log = []
-
-# ==================== KEEP-ALIVE FUNCTION ====================
-
+# ── Keep-Alive Thread ──
 def keep_alive():
-    """Keep Render server awake by self-pinging every 12 minutes"""
+    """Ping server every 12 minutes to prevent sleep"""
     while True:
         try:
             time.sleep(720)  # 12 minutes
-            requests.get('https://ajewel-whatsapp-bot.onrender.com/')
-            print('✅ Keep-alive ping sent')
+            print(f"[{datetime.now()}] Keep-alive ping")
         except Exception as e:
-            print(f'❌ Keep-alive error: {e}')
+            print(f"Keep-alive error: {e}")
 
 # Start keep-alive thread
-keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
-keep_alive_thread.start()
+threading.Thread(target=keep_alive, daemon=True).start()
 
-# ==================== HELPER FUNCTIONS ====================
+print("✅ AJewelBot v3 Initialized")
+print("✅ Keep-alive thread started")
+print(f"✅ Logo URL: {LOGO_IMAGE_URL}")
+# ═══════════════════════════════════════════════════════════
+# GOOGLE SHEETS SERVICE
+# ═══════════════════════════════════════════════════════════
 
-def log_to_google_sheets(phone_number):
-    """Log WhatsApp number to Column A (via backend or direct)"""
+def get_google_sheet():
+    """Connect to Google Sheets"""
     try:
-        # Add to in-memory log
-        if phone_number not in google_sheets_log:
-            google_sheets_log.append(phone_number)
-            print(f'📝 Logged to sheets: {phone_number}')
+        creds_dict = json.loads(GOOGLE_CREDENTIALS)
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        return client.open_by_key(SHEET_ID).worksheet('Registrations')
+    except Exception as e:
+        print(f"Google Sheets Error: {e}")
+        return None
+
+def log_to_column_a(phone_number):
+    """Log phone number to Column A (no duplicates)"""
+    try:
+        sheet = get_google_sheet()
+        if not sheet:
+            return False
+        
+        # Check if exists
+        all_values = sheet.col_values(1)
+        if phone_number in all_values:
+            print(f"Phone {phone_number} already logged")
+            return True
+        
+        # Append to Column A
+        sheet.append_row([phone_number])
+        print(f"✅ Logged to Column A: {phone_number}")
         return True
     except Exception as e:
-        print(f'❌ Sheets log error: {e}')
+        print(f"Column A logging error: {e}")
         return False
 
-def send_whatsapp_message(phone_number, message):
-    """Send text message via WhatsApp"""
+# ═══════════════════════════════════════════════════════════
+# SHOPIFY SERVICE
+# ═══════════════════════════════════════════════════════════
+
+def get_shopify_customer(phone_number):
+    """Get customer from Shopify by phone"""
     try:
-        url = f'https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages'
+        url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json"
         headers = {
-            'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+            'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
             'Content-Type': 'application/json'
         }
-        payload = {
-            'messaging_product': 'whatsapp',
-            'to': phone_number,
-            'type': 'text',
-            'text': {'body': message}
-        }
-        response = requests.post(url, headers=headers, json=payload)
-        print(f'✅ Message sent to {phone_number}')
-        return response.json()
+        params = {'query': f'phone:{phone_number}'}
+        
+        response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('customers'):
+                return data['customers'][0]
+        return None
     except Exception as e:
-        print(f'❌ Send message error: {e}')
+        print(f"Shopify customer fetch error: {e}")
         return None
 
-def send_whatsapp_buttons(phone_number, message, buttons):
-    """Send interactive buttons (max 3)"""
+def get_shopify_order(order_number):
+    """Get order from Shopify by order number"""
     try:
-        url = f'https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages'
+        url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/orders.json"
         headers = {
-            'Authorization': f'Bearer {WHATSAPP_TOKEN}',
+            'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
             'Content-Type': 'application/json'
         }
+        params = {'name': order_number}
         
-        button_list = []
-        for i, btn in enumerate(buttons[:3]):
-            button_list.append({
-                'type': 'reply',
-                'reply': {
-                    'id': f'btn_{i}_{btn.lower().replace(" ", "_")}',
-                    'title': btn[:20]
-                }
-            })
+        response = requests.get(url, headers=headers, params=params)
         
-        payload = {
-            'messaging_product': 'whatsapp',
-            'to': phone_number,
-            'type': 'interactive',
-            'interactive': {
-                'type': 'button',
-                'body': {'text': message},
-                'action': {'buttons': button_list}
-            }
-        }
-        
-        response = requests.post(url, headers=headers, json=payload)
-        print(f'✅ Buttons sent to {phone_number}')
-        return response.json()
-    except Exception as e:
-        print(f'❌ Send buttons error: {e}')
-        return None
-
-def send_cta_url_button(phone_number, message, button_text, url):
-    """Send CTA URL button - Opens in WhatsApp in-app browser"""
-    try:
-        whatsapp_url = f'https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages'
-        headers = {
-            'Authorization': f'Bearer {WHATSAPP_TOKEN}',
-            'Content-Type': 'application/json'
-        }
-        
-        payload = {
-            'messaging_product': 'whatsapp',
-            'to': phone_number,
-            'type': 'interactive',
-            'interactive': {
-                'type': 'cta_url',
-                'body': {'text': message},
-                'action': {
-                    'name': 'cta_url',
-                    'parameters': {
-                        'display_text': button_text,
-                        'url': url
-                    }
-                }
-            }
-        }
-        
-        response = requests.post(whatsapp_url, headers=headers, json=payload)
-        print(f'✅ CTA button sent to {phone_number}')
-        return response.json()
-    except Exception as e:
-        print(f'❌ Send CTA error: {e}')
-        return None
-
-def send_whatsapp_catalog(phone_number, body_text='Browse our jewellery collection 💎'):
-    """Send WhatsApp Catalog - Uses WhatsApp's native catalogue"""
-    try:
-        url = f'https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages'
-        headers = {
-            'Authorization': f'Bearer {WHATSAPP_TOKEN}',
-            'Content-Type': 'application/json'
-        }
-        
-        payload = {
-            'messaging_product': 'whatsapp',
-            'recipient_type': 'individual',
-            'to': phone_number,
-            'type': 'interactive',
-            'interactive': {
-                'type': 'catalog_message',
-                'body': {'text': body_text},
-                'action': {'name': 'catalog_message'}
-            }
-        }
-        
-        response = requests.post(url, headers=headers, json=payload)
-        print(f'✅ Catalog sent to {phone_number}')
-        return response.json()
-    except Exception as e:
-        print(f'❌ Send catalog error: {e}')
-        return None
-# Part 2: Shopify Integration and Payment Functions
-
-# ==================== SHOPIFY FUNCTIONS ====================
-
-def get_shopify_customer(phone):
-    """Check if customer exists in Shopify"""
-    try:
-        url = f'https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json?query=phone:{phone}'
-        response = requests.get(url, headers=SHOPIFY_HEADERS)
-        data = response.json()
-        
-        if data.get('customers') and len(data['customers']) > 0:
-            customer = data['customers'][0]
-            print(f'✅ Customer found: {customer.get("first_name")}')
-            return customer
-        
-        print(f'❌ Customer not found: {phone}')
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('orders'):
+                return data['orders'][0]
         return None
     except Exception as e:
-        print(f'❌ Get customer error: {e}')
+        print(f"Shopify order fetch error: {e}")
         return None
 
-def get_shopify_products(limit=50):
-    """Get products from Shopify"""
-    try:
-        url = f'https://{SHOPIFY_STORE}/admin/api/2024-01/products.json?limit={limit}'
-        response = requests.get(url, headers=SHOPIFY_HEADERS)
-        data = response.json()
-        return data.get('products', [])
-    except Exception as e:
-        print(f'❌ Get products error: {e}')
-        return []
+def is_b2b_customer(customer):
+    """Check if customer is B2B based on tags"""
+    if not customer:
+        return False
+    tags = customer.get('tags', '').lower()
+    return 'b2b' in tags or 'wholesaler' in tags
+# ═══════════════════════════════════════════════════════════
+# SESSION MANAGEMENT
+# ═══════════════════════════════════════════════════════════
 
-def get_shopify_collections():
-    """Get collections from Shopify"""
-    try:
-        url = f'https://{SHOPIFY_STORE}/admin/api/2024-01/custom_collections.json'
-        response = requests.get(url, headers=SHOPIFY_HEADERS)
-        data = response.json()
-        return data.get('custom_collections', [])
-    except Exception as e:
-        print(f'❌ Get collections error: {e}')
-        return []
-
-# ==================== PAYMENT FUNCTIONS ====================
-
-def generate_razorpay_link(amount, customer_name, customer_phone, order_id):
-    """Generate Razorpay payment link"""
-    try:
-        import base64
+def get_session(phone_number):
+    """Get or create user session"""
+    current_time = datetime.now()
+    
+    if phone_number in user_sessions:
+        session = user_sessions[phone_number]
+        last_activity = session.get('last_activity')
         
-        url = 'https://api.razorpay.com/v1/payment_links'
-        auth = base64.b64encode(f'{RAZORPAY_KEY_ID}:{RAZORPAY_KEY_SECRET}'.encode()).decode()
+        # Check timeout (30 minutes)
+        if last_activity and (current_time - last_activity).seconds > SESSION_TIMEOUT:
+            print(f"Session expired for {phone_number}")
+            clear_session(phone_number)
+            return create_session(phone_number)
         
-        headers = {
-            'Authorization': f'Basic {auth}',
-            'Content-Type': 'application/json'
-        }
-        
-        payload = {
-            'amount': int(amount * 100),  # Convert to paise
-            'currency': 'INR',
-            'description': f'A Jewel Studio - Order #{order_id}',
-            'customer': {
-                'name': customer_name,
-                'contact': customer_phone
-            },
-            'notify': {
-                'sms': True,
-                'whatsapp': True
-            },
-            'callback_url': f'{BACKEND_URL}/payment/callback',
-            'callback_method': 'get'
-        }
-        
-        response = requests.post(url, headers=headers, json=payload)
-        data = response.json()
-        
-        if data.get('short_url'):
-            print(f'✅ Payment link created: {data["short_url"]}')
-            return data
-        else:
-            print(f'❌ Payment link error: {data}')
-            return None
-            
-    except Exception as e:
-        print(f'❌ Razorpay error: {e}')
-        return None
+        # Update last activity
+        session['last_activity'] = current_time
+        return session
+    
+    return create_session(phone_number)
 
-# ==================== SESSION MANAGEMENT ====================
+def create_session(phone_number):
+    """Create new session"""
+    user_sessions[phone_number] = {
+        'phone': phone_number,
+        'state': 'idle',
+        'data': {},
+        'last_activity': datetime.now(),
+        'created_at': datetime.now()
+    }
+    return user_sessions[phone_number]
 
-def get_session(phone):
-    """Get user session"""
-    return user_sessions.get(phone, {})
+def update_session(phone_number, state=None, data=None):
+    """Update session state and data"""
+    session = get_session(phone_number)
+    if state:
+        session['state'] = state
+    if data:
+        session['data'].update(data)
+    session['last_activity'] = datetime.now()
+    return session
 
-def set_session(phone, data):
-    """Set user session"""
-    if phone not in user_sessions:
-        user_sessions[phone] = {}
-    user_sessions[phone].update(data)
-    user_sessions[phone]['last_activity'] = datetime.now().isoformat()
-    return user_sessions[phone]
-
-def clear_session(phone):
+def clear_session(phone_number):
     """Clear user session"""
-    if phone in user_sessions:
-        del user_sessions[phone]
-        print(f'🗑️ Session cleared: {phone}')
-    return True
+    if phone_number in user_sessions:
+        del user_sessions[phone_number]
+        print(f"Session cleared for {phone_number}")
+# ═══════════════════════════════════════════════════════════
+# WHATSAPP SEND FUNCTIONS
+# ═══════════════════════════════════════════════════════════
 
-# ==================== ERROR HANDLING ====================
-
-def handle_error(phone, error_message):
-    """Send error message to user"""
+def send_whatsapp_text(to_number, message_text):
+    """Send text message"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "text": {"body": message_text}
+    }
     try:
-        message = f'❌ Sorry, something went wrong.\n\n{error_message}\n\nPlease type "Hi" to restart.'
-        send_whatsapp_message(phone, message)
-        clear_session(phone)
-        print(f'❌ Error handled for {phone}: {error_message}')
+        r = requests.post(url, json=payload, headers=headers)
+        print(f"Text sent to {to_number}: {r.status_code}")
+        return r.json()
     except Exception as e:
-        print(f'❌ Error handler failed: {e}')
+        print(f"WhatsApp text error: {e}")
+        return None
 
-# ==================== ANALYTICS LOGGING ====================
+def send_whatsapp_image(to_number, image_url, caption=''):
+    """Send image message"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "image",
+        "image": {
+            "link": image_url,
+            "caption": caption
+        }
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers)
+        print(f"Image sent to {to_number}: {r.status_code}")
+        return r.json()
+    except Exception as e:
+        print(f"WhatsApp image error: {e}")
+        return None
+
+def send_whatsapp_buttons(to_number, body_text, buttons):
+    """Send interactive buttons (max 3)"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body_text},
+            "action": {
+                "buttons": buttons[:3]
+            }
+        }
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers)
+        print(f"Buttons sent to {to_number}: {r.status_code}")
+        return r.json()
+    except Exception as e:
+        print(f"WhatsApp buttons error: {e}")
+        return None
+
+def send_whatsapp_cta_button(to_number, body_text, button_text, button_url):
+    """Send CTA URL button"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": body_text},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": button_text,
+                    "url": button_url
+                }
+            }
+        }
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers)
+        if r.status_code == 200:
+            return r.json()
+        else:
+            # Fallback to text
+            fallback = f"{body_text}\n\n{button_text}: {button_url}"
+            return send_whatsapp_text(to_number, fallback)
+    except Exception as e:
+        print(f"WhatsApp CTA error: {e}")
+        return None
+
+def send_whatsapp_catalog(to_number, body_text="Browse our collection"):
+    """Send WhatsApp native catalog"""
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "catalog_message",
+            "body": {"text": body_text},
+            "action": {
+                "name": "catalog_message"
+            }
+        }
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers)
+        print(f"Catalog sent to {to_number}: {r.status_code}")
+        return r.json()
+    except Exception as e:
+        print(f"WhatsApp catalog error: {e}")
+        return None
+# ═══════════════════════════════════════════════════════════
+# ANALYTICS LOGGING
+# ═══════════════════════════════════════════════════════════
 
 def log_analytics(event_type, data):
     """Log analytics event to backend"""
     try:
-        url = f'{BACKEND_URL}/api/analytics'
+        url = f"{BACKEND_API_URL}/analytics/log"
         payload = {
-            'event': event_type,
-            'data': data,
-            'timestamp': datetime.now().isoformat()
+            'event_type': event_type,
+            'timestamp': datetime.now().isoformat(),
+            'data': data
         }
         requests.post(url, json=payload, timeout=5)
-        print(f'📊 Analytics logged: {event_type}')
+        print(f"✅ Analytics logged: {event_type}")
     except Exception as e:
-        print(f'❌ Analytics log error: {e}')
-# Part 3: Message Handlers and Business Logic
+        print(f"Analytics logging error: {e}")
 
-# ==================== WEBHOOK ENDPOINTS ====================
+# ═══════════════════════════════════════════════════════════
+# FLOW MESSAGES - NEW CUSTOMER
+# ═══════════════════════════════════════════════════════════
 
-@app.route('/')
+def send_new_customer_signup(to_number):
+    """Flow: New customer - Send signup prompt"""
+    # Send logo image
+    send_whatsapp_image(
+        to_number,
+        LOGO_IMAGE_URL,
+        caption="Welcome to A Jewel Studio"
+    )
+    
+    # Send Join Us button
+    join_url = f"{JOIN_US_URL}?wa={to_number}"
+    send_whatsapp_cta_button(
+        to_number,
+        "Tap Join Us below to become a part of our family.",
+        "Join Us",
+        join_url
+    )
+    
+    # Update session
+    update_session(to_number, state='awaiting_signup')
+    
+    # Log analytics
+    log_analytics('new_customer_signup_prompt', {'phone': to_number})
+
+# ═══════════════════════════════════════════════════════════
+# FLOW MESSAGES - B2B CUSTOMER
+# ═══════════════════════════════════════════════════════════
+
+def send_b2b_welcome(to_number, customer_name):
+    """Flow: B2B customer welcome"""
+    message = f"Welcome back, {customer_name}.\n\nWe are delighted to have you here."
+    send_whatsapp_text(to_number, message)
+    
+    # Send catalog
+    send_whatsapp_catalog(to_number, "Browse our digital jewellery files collection.")
+    
+    # Log analytics
+    log_analytics('b2b_catalog_shown', {'phone': to_number, 'name': customer_name})
+
+# ═══════════════════════════════════════════════════════════
+# FLOW MESSAGES - RETAIL CUSTOMER
+# ═══════════════════════════════════════════════════════════
+
+def send_retail_welcome(to_number, customer_name):
+    """Flow: Retail customer welcome"""
+    message = f"Welcome back, {customer_name}.\n\nWe are delighted to have you here.\n\nWould you like to explore custom jewellery designs?"
+    
+    buttons = [
+        {"id": "custom_yes", "title": "Yes"},
+        {"id": "custom_no", "title": "No"}
+    ]
+    
+    send_whatsapp_buttons(to_number, message, buttons)
+    
+    # Update session
+    update_session(to_number, state='awaiting_custom_choice')
+    
+    # Log analytics
+    log_analytics('retail_menu_shown', {'phone': to_number, 'name': customer_name})
+# ═══════════════════════════════════════════════════════════
+# MESSAGE HANDLERS - TEXT MESSAGES
+# ═══════════════════════════════════════════════════════════
+
+def handle_text_message(phone_number, message_text):
+    """Handle incoming text messages"""
+    print(f"📩 Text from {phone_number}: {message_text}")
+    
+    # Log to Column A
+    log_to_column_a(phone_number)
+    
+    # Get session
+    session = get_session(phone_number)
+    current_state = session.get('state', 'idle')
+    
+    # Check if tracking order
+    if message_text.lower().startswith('track'):
+        handle_order_tracking(phone_number, message_text)
+        return
+    
+    # Check if referral request
+    if message_text.lower() == 'referral':
+        handle_referral_request(phone_number)
+        return
+    
+    # Get customer from Shopify
+    customer = get_shopify_customer(phone_number)
+    
+    # NEW CUSTOMER - Not in Shopify
+    if not customer:
+        print(f"🆕 New customer: {phone_number}")
+        send_new_customer_signup(phone_number)
+        return
+    
+    # EXISTING CUSTOMER
+    customer_name = customer.get('first_name', 'Customer')
+    
+    # Check if B2B or Retail
+    if is_b2b_customer(customer):
+        print(f"🏢 B2B customer: {customer_name}")
+        send_b2b_welcome(phone_number, customer_name)
+    else:
+        print(f"🛍️ Retail customer: {customer_name}")
+        send_retail_welcome(phone_number, customer_name)
+
+# ═══════════════════════════════════════════════════════════
+# MESSAGE HANDLERS - BUTTON RESPONSES
+# ═══════════════════════════════════════════════════════════
+
+def handle_button_response(phone_number, button_id):
+    """Handle button click responses"""
+    print(f"🔘 Button clicked: {button_id} by {phone_number}")
+    
+    session = get_session(phone_number)
+    customer = get_shopify_customer(phone_number)
+    customer_name = customer.get('first_name', 'Customer') if customer else 'Customer'
+    
+    # CUSTOM JEWELLERY - YES
+    if button_id == 'custom_yes':
+        message = f"Wonderful, {customer_name}!\n\nOur design team would love to discuss your requirements.\n\nPlease book an appointment at your convenience."
+        
+        appointment_url = "https://calendly.com/ajewelstudio/consultation"  # Replace with actual URL
+        send_whatsapp_cta_button(
+            phone_number,
+            message,
+            "Book Appointment",
+            appointment_url
+        )
+        
+        log_analytics('custom_appointment_link_sent', {'phone': phone_number})
+        clear_session(phone_number)
+    
+    # CUSTOM JEWELLERY - NO
+    elif button_id == 'custom_no':
+        message = f"No problem, {customer_name}!\n\nBrowse our ready-to-order collection below."
+        send_whatsapp_text(phone_number, message)
+        
+        # Send catalog
+        send_whatsapp_catalog(phone_number, "Explore our exclusive jewellery designs.")
+        
+        log_analytics('retail_catalog_shown', {'phone': phone_number})
+        clear_session(phone_number)
+    
+    # VIEW CART (Abandoned cart reminder)
+    elif button_id == 'view_cart':
+        cart_url = f"https://{SHOPIFY_STORE}/cart"
+        send_whatsapp_cta_button(
+            phone_number,
+            "Your cart is waiting for you.",
+            "View Cart",
+            cart_url
+        )
+    
+    # CONTINUE SHOPPING
+    elif button_id == 'continue_shopping':
+        send_whatsapp_catalog(phone_number, "Continue browsing our collection.")
+    
+    else:
+        send_whatsapp_text(phone_number, "Thank you for your response.")
+
+# ═══════════════════════════════════════════════════════════
+# MESSAGE HANDLERS - WHATSAPP CART ORDER
+# ═══════════════════════════════════════════════════════════
+
+def handle_whatsapp_cart_order(phone_number, order_data):
+    """Handle WhatsApp native catalog order"""
+    print(f"🛒 Order received from {phone_number}")
+    
+    try:
+        # Extract order items
+        items = order_data.get('order', {}).get('product_items', [])
+        
+        if not items:
+            send_whatsapp_text(phone_number, "We could not process your order. Please try again.")
+            return
+        
+        # Calculate total
+        total_amount = 0
+        order_summary = "*Order Summary:*\n\n"
+        
+        for idx, item in enumerate(items, 1):
+            product_name = item.get('product_retailer_id', 'Product')
+            quantity = item.get('quantity', 1)
+            price = item.get('item_price', 0)
+            item_total = quantity * price
+            total_amount += item_total
+            
+            order_summary += f"{idx}. {product_name}\n"
+            order_summary += f"   Qty: {quantity} × ₹{price} = ₹{item_total}\n\n"
+        
+        order_summary += f"━━━━━━━━━━━━━━━━━━━━\n"
+        order_summary += f"*Total: ₹{total_amount}*"
+        
+        # Get customer
+        customer = get_shopify_customer(phone_number)
+        
+        # Check if B2B
+        if customer and is_b2b_customer(customer):
+            # B2B - Generate payment link
+            handle_b2b_order_payment(phone_number, total_amount, order_summary, items)
+        else:
+            # RETAIL - Manual follow-up
+            handle_retail_order_manual(phone_number, order_summary)
+        
+    except Exception as e:
+        print(f"Order handling error: {e}")
+        send_whatsapp_text(phone_number, "We encountered an error processing your order. Our team will contact you shortly.")
+
+def handle_b2b_order_payment(phone_number, amount, order_summary, items):
+    """Handle B2B order with Razorpay payment"""
+    try:
+        # Create order ID
+        order_id = f"AJS{int(time.time())}"
+        
+        # Generate Razorpay payment link
+        payment_url = generate_razorpay_link(order_id, amount, phone_number)
+        
+        if payment_url:
+            message = f"{order_summary}\n\nPlease complete your payment to confirm the order."
+            send_whatsapp_cta_button(
+                phone_number,
+                message,
+                "Pay Now",
+                payment_url
+            )
+            
+            # Store order data in session
+            update_session(phone_number, data={
+                'order_id': order_id,
+                'amount': amount,
+                'items': items
+            })
+            
+            log_analytics('b2b_order_created', {
+                'phone': phone_number,
+                'order_id': order_id,
+                'amount': amount
+            })
+        else:
+            send_whatsapp_text(phone_number, f"{order_summary}\n\nOur team will contact you shortly to complete the payment.")
+    
+    except Exception as e:
+        print(f"B2B payment error: {e}")
+        send_whatsapp_text(phone_number, "Our team will contact you shortly to process your order.")
+
+def handle_retail_order_manual(phone_number, order_summary):
+    """Handle retail order - manual follow-up"""
+    message = f"{order_summary}\n\nThank you for your order!\n\nOur team will contact you shortly to confirm the details and arrange delivery."
+    send_whatsapp_text(phone_number, message)
+    
+    log_analytics('retail_order_created', {'phone': phone_number})
+
+# ═══════════════════════════════════════════════════════════
+# RAZORPAY PAYMENT LINK GENERATION
+# ═══════════════════════════════════════════════════════════
+
+def generate_razorpay_link(order_id, amount, phone_number):
+    """Generate Razorpay payment link"""
+    try:
+        url = "https://api.razorpay.com/v1/payment_links"
+        auth = (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+        
+        payload = {
+            "amount": int(amount * 100),  # Amount in paise
+            "currency": "INR",
+            "description": f"Order Payment - {order_id}",
+            "customer": {
+                "contact": phone_number
+            },
+            "notify": {
+                "sms": False,
+                "email": False,
+                "whatsapp": False
+            },
+            "reminder_enable": False,
+            "callback_url": f"{BACKEND_API_URL}/payment/callback",
+            "callback_method": "get"
+        }
+        
+        response = requests.post(url, json=payload, auth=auth)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('short_url')
+        else:
+            print(f"Razorpay error: {response.text}")
+            return None
+    
+    except Exception as e:
+        print(f"Payment link generation error: {e}")
+        return None
+# ═══════════════════════════════════════════════════════════
+# ORDER TRACKING
+# ═══════════════════════════════════════════════════════════
+
+def handle_order_tracking(phone_number, message_text):
+    """Handle order tracking request"""
+    try:
+        # Extract order number (e.g., "Track #1234" or "Track 1234")
+        order_number = message_text.replace('track', '').replace('#', '').strip()
+        
+        if not order_number:
+            send_whatsapp_text(phone_number, "Please provide your order number.\n\nExample: Track #1234")
+            return
+        
+        # Get order from Shopify
+        order = get_shopify_order(f"#{order_number}")
+        
+        if not order:
+            send_whatsapp_text(phone_number, f"We could not find order #{order_number}.\n\nPlease check the order number and try again.")
+            return
+        
+        # Get order details
+        order_status = order.get('financial_status', 'Unknown')
+        fulfillment_status = order.get('fulfillment_status', 'unfulfilled')
+        
+        # Build status message
+        status_message = f"*Order #{order_number}*\n\n"
+        status_message += f"Payment Status: {order_status.title()}\n"
+        status_message += f"Fulfillment Status: {fulfillment_status.title()}\n\n"
+        
+        # Check for tracking
+        fulfillments = order.get('fulfillments', [])
+        if fulfillments:
+            tracking_url = fulfillments[0].get('tracking_url')
+            tracking_number = fulfillments[0].get('tracking_number')
+            
+            if tracking_url:
+                status_message += f"Tracking Number: {tracking_number}\n\n"
+                send_whatsapp_cta_button(
+                    phone_number,
+                    status_message,
+                    "Track Shipment",
+                    tracking_url
+                )
+                return
+        
+        send_whatsapp_text(phone_number, status_message + "Our team will update you once your order is dispatched.")
+    
+    except Exception as e:
+        print(f"Order tracking error: {e}")
+        send_whatsapp_text(phone_number, "We encountered an error. Please contact our support team.")
+
+# ═══════════════════════════════════════════════════════════
+# REFERRAL SYSTEM
+# ═══════════════════════════════════════════════════════════
+
+def handle_referral_request(phone_number):
+    """Handle referral link request"""
+    try:
+        # Get customer
+        customer = get_shopify_customer(phone_number)
+        
+        if not customer:
+            send_whatsapp_text(phone_number, "Please register first to get your referral link.")
+            send_new_customer_signup(phone_number)
+            return
+        
+        # Generate referral code
+        customer_id = str(customer.get('id', ''))
+        first_name = customer.get('first_name', 'USER')
+        
+        # Code: First 3 letters + Last 4 digits of ID
+        referral_code = f"{first_name[:3].upper()}{customer_id[-4:]}"
+        
+        # Generate referral URL
+        referral_url = f"{JOIN_US_URL}?ref={referral_code}"
+        
+        # Send referral message
+        message = f"*Your Referral Code:* {referral_code}\n\n"
+        message += f"Share this link with your friends:\n{referral_url}\n\n"
+        message += "*Benefits:*\n"
+        message += "• Your friend gets 10% OFF on first order\n"
+        message += "• You earn ₹500 credit for each successful referral\n\n"
+        message += "Start sharing and earn rewards!"
+        
+        send_whatsapp_text(phone_number, message)
+        
+        log_analytics('referral_link_sent', {
+            'phone': phone_number,
+            'code': referral_code
+        })
+    
+    except Exception as e:
+        print(f"Referral error: {e}")
+        send_whatsapp_text(phone_number, "We encountered an error. Please try again later.")
+# ═══════════════════════════════════════════════════════════
+# PAYMENT CALLBACK
+# ═══════════════════════════════════════════════════════════
+
+def handle_payment_callback(payment_data):
+    """Handle Razorpay payment callback"""
+    try:
+        event_type = payment_data.get('event')
+        payload = payment_data.get('payload', {})
+        payment = payload.get('payment', {})
+        
+        phone_number = payment.get('contact')
+        amount = payment.get('amount', 0) / 100  # Convert from paise
+        status = payment.get('status')
+        
+        if not phone_number:
+            return
+        
+        if event_type == 'payment.captured' or status == 'captured':
+            # Payment successful
+            message = f"✅ Payment Received!\n\nAmount: ₹{amount}\n\nYour order is confirmed. You will receive your digital files shortly."
+            send_whatsapp_text(phone_number, message)
+            
+            # Send download link (if B2B)
+            download_url = "https://a-jewel-studio-3.myshopify.com/pages/downloads"  # Replace with actual
+            send_whatsapp_cta_button(
+                phone_number,
+                "Your files are ready for download.",
+                "Download Files",
+                download_url
+            )
+            
+            log_analytics('payment_successful', {
+                'phone': phone_number,
+                'amount': amount
+            })
+        
+        else:
+            # Payment failed/cancelled
+            message = f"❌ Payment {status.title()}\n\nAmount: ₹{amount}\n\nPlease try again or contact our support team."
+            send_whatsapp_text(phone_number, message)
+            
+            log_analytics('payment_failed', {
+                'phone': phone_number,
+                'amount': amount,
+                'status': status
+            })
+    
+    except Exception as e:
+        print(f"Payment callback error: {e}")
+
+# ═══════════════════════════════════════════════════════════
+# ABANDONED CART REMINDER
+# ═══════════════════════════════════════════════════════════
+
+def send_abandoned_cart_reminder(phone_number, cart_data):
+    """Send abandoned cart reminder"""
+    try:
+        message = "You left items in your cart 🛒\n\nWould you like to complete your purchase?"
+        
+        buttons = [
+            {"id": "view_cart", "title": "View Cart"},
+            {"id": "continue_shopping", "title": "Continue Shopping"}
+        ]
+        
+        send_whatsapp_buttons(phone_number, message, buttons)
+        
+        log_analytics('abandoned_cart_reminder', {'phone': phone_number})
+    
+    except Exception as e:
+        print(f"Abandoned cart error: {e}")
+
+# ═══════════════════════════════════════════════════════════
+# BIRTHDAY/ANNIVERSARY WISHES
+# ═══════════════════════════════════════════════════════════
+
+def send_birthday_wish(phone_number, customer_name):
+    """Send birthday wish with discount"""
+    message = f"🎉 Happy Birthday, {customer_name}!\n\n"
+    message += "Celebrate your special day with an exclusive 15% OFF on all products.\n\n"
+    message += "Use code: *BDAY15*\n\n"
+    message += "Valid for 7 days."
+    
+    send_whatsapp_text(phone_number, message)
+    send_whatsapp_catalog(phone_number, "Browse our collection and treat yourself!")
+    
+    log_analytics('birthday_wish_sent', {'phone': phone_number})
+
+def send_anniversary_wish(phone_number, customer_name):
+    """Send anniversary wish with discount"""
+    message = f"💍 Happy Anniversary, {customer_name}!\n\n"
+    message += "Celebrate your special day with an exclusive 20% OFF on all products.\n\n"
+    message += "Use code: *ANNIV20*\n\n"
+    message += "Valid for 7 days."
+    
+    send_whatsapp_text(phone_number, message)
+    send_whatsapp_catalog(phone_number, "Browse our collection and make this day memorable!")
+    
+    log_analytics('anniversary_wish_sent', {'phone': phone_number})
+# ═══════════════════════════════════════════════════════════
+# BROADCAST CAMPAIGN
+# ═══════════════════════════════════════════════════════════
+
+def send_broadcast_message(phone_list, message, button_text=None, button_url=None):
+    """Send broadcast message to multiple customers"""
+    success_count = 0
+    
+    for phone in phone_list:
+        try:
+            if button_text and button_url:
+                send_whatsapp_cta_button(phone, message, button_text, button_url)
+            else:
+                send_whatsapp_text(phone, message)
+            
+            success_count += 1
+            time.sleep(1)  # Rate limiting
+        
+        except Exception as e:
+            print(f"Broadcast error for {phone}: {e}")
+    
+    return success_count
+
+# ═══════════════════════════════════════════════════════════
+# ERROR HANDLING
+# ═══════════════════════════════════════════════════════════
+
+def handle_error(phone_number, error_message):
+    """Handle errors gracefully"""
+    try:
+        send_whatsapp_text(
+            phone_number,
+            "We encountered an error processing your request. Our team has been notified and will assist you shortly."
+        )
+        clear_session(phone_number)
+        print(f"❌ Error for {phone_number}: {error_message}")
+    except Exception as e:
+        print(f"Error handler failed: {e}")
+# ═══════════════════════════════════════════════════════════
+# WEBHOOK ROUTES
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/', methods=['GET'])
 def home():
+    """Health check endpoint"""
     return jsonify({
-        'status': 'running',
-        'service': 'AJewelBot v2 WhatsApp Bot',
-        'version': '2.0.0',
-        'features': 70
-    })
+        "status": "running",
+        "app": "AJewelBot v3",
+        "version": "3.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "features": [
+            "WhatsApp Commerce Bot",
+            "Session Management",
+            "Order Tracking",
+            "Razorpay Integration",
+            "Referral System",
+            "Analytics Logging",
+            "Abandoned Cart Recovery",
+            "Birthday/Anniversary Wishes"
+        ]
+    }), 200
 
 @app.route('/webhook', methods=['GET', 'POST'])
-def whatsapp_webhook():
-    """WhatsApp webhook - Main entry point"""
+def webhook():
+    """WhatsApp webhook endpoint"""
     
-    # Verification (GET request)
+    # ── GET: Webhook Verification ──
     if request.method == 'GET':
         mode = request.args.get('hub.mode')
         token = request.args.get('hub.verify_token')
         challenge = request.args.get('hub.challenge')
         
         if mode == 'subscribe' and token == VERIFY_TOKEN:
-            print('✅ Webhook verified')
+            print("✅ Webhook verified")
             return challenge, 200
         
-        print('❌ Webhook verification failed')
+        print("❌ Webhook verification failed")
         return 'Forbidden', 403
     
-    # Message handling (POST request)
-    if request.method == 'POST':
-        data = request.json
-        print(f'📨 Webhook received: {json.dumps(data, indent=2)}')
+    # ── POST: Incoming Message ──
+    data = request.get_json()
+    print("=" * 60)
+    print(f"[{datetime.now()}] Webhook received")
+    
+    try:
+        entry = data.get('entry', [])
+        if not entry:
+            return jsonify({"status": "ok"}), 200
         
-        try:
-            entry = data['entry'][0]
-            changes = entry['changes'][0]
-            value = changes['value']
-            
-            if 'messages' in value:
-                message = value['messages'][0]
-                from_number = message['from']
-                message_type = message['type']
+        changes = entry[0].get('changes', [])
+        if not changes:
+            return jsonify({"status": "ok"}), 200
+        
+        value = changes[0].get('value', {})
+        
+        # Check for messages
+        if 'messages' in value:
+            messages = value['messages']
+            for message in messages:
+                phone_number = message.get('from')
+                message_type = message.get('type')
                 
-                # Log to Google Sheets (Column A)
-                log_to_google_sheets(from_number)
+                print(f"📱 From: {phone_number} | Type: {message_type}")
                 
-                print(f'📱 Message from: {from_number}, Type: {message_type}')
-                
-                # Handle text messages
+                # Handle TEXT messages
                 if message_type == 'text':
-                    text = message['text']['body'].strip().lower()
-                    handle_text_message(from_number, text)
+                    message_text = message.get('text', {}).get('body', '')
+                    handle_text_message(phone_number, message_text)
                 
-                # Handle button responses
+                # Handle BUTTON responses
                 elif message_type == 'interactive':
-                    interactive_type = message['interactive']['type']
+                    interactive = message.get('interactive', {})
                     
-                    if interactive_type == 'button_reply':
-                        button_id = message['interactive']['button_reply']['id']
-                        button_title = message['interactive']['button_reply']['title']
-                        handle_button_response(from_number, button_id, button_title)
+                    # Button reply
+                    if 'button_reply' in interactive:
+                        button_id = interactive['button_reply'].get('id', '')
+                        handle_button_response(phone_number, button_id)
                     
-                    elif interactive_type == 'list_reply':
-                        list_id = message['interactive']['list_reply']['id']
-                        list_title = message['interactive']['list_reply']['title']
-                        handle_list_response(from_number, list_id, list_title)
+                    # List reply
+                    elif 'list_reply' in interactive:
+                        list_id = interactive['list_reply'].get('id', '')
+                        handle_button_response(phone_number, list_id)
                 
-                # Handle WhatsApp CART orders (catalogue orders)
+                # Handle ORDER (WhatsApp Catalog)
                 elif message_type == 'order':
-                    order_data = message['order']
-                    print(f'🛒 Order received: {json.dumps(order_data, indent=2)}')
-                    handle_whatsapp_cart_order(from_number, order_data)
+                    order_data = message.get('order', {})
+                    handle_whatsapp_cart_order(phone_number, {'order': order_data})
         
-        except Exception as e:
-            print(f'❌ Webhook error: {e}')
-            import traceback
-            traceback.print_exc()
-        
-        return jsonify({'status': 'ok'}), 200
-
-# ==================== TEXT MESSAGE HANDLER ====================
-
-def handle_text_message(phone, text):
-    """Handle incoming text messages"""
-    try:
-        # Log analytics
-        log_analytics('message_received', {'phone': phone, 'text': text})
-        
-        # Check if customer exists in Shopify
-        customer = get_shopify_customer(phone)
-        
-        # Commands: hi, hello, hey, start, menu, catalogue
-        if text in ['hi', 'hello', 'hey', 'start', 'menu', 'catalogue', 'catalog']:
-            
-            if customer:
-                # EXISTING CUSTOMER
-                customer_name = customer.get('first_name', 'Customer')
-                customer_tags = customer.get('tags', '')
-                
-                print(f'✅ Existing customer: {customer_name}, Tags: {customer_tags}')
-                
-                if 'B2B' in customer_tags or 'Wholesaler' in customer_tags:
-                    # B2B CUSTOMER - Direct Catalogue
-                    message = f'Hello {customer_name}! Welcome to A Jewel Studio 💎\n\nBrowse our catalogue and add items to cart:'
-                    send_whatsapp_catalog(phone, message)
-                    
-                    # Log analytics
-                    log_analytics('b2b_catalog_shown', {'phone': phone, 'customer': customer_name})
-                    
-                else:
-                    # RETAIL CUSTOMER
-                    message = f'Hello {customer_name}! Welcome to A Jewel Studio 💎\n\nKya aap Custom Jewellery karvana chahte hain?'
-                    send_whatsapp_buttons(phone, message, ['Yes', 'No'])
-                    
-                    # Set session
-                    set_session(phone, {'state': 'awaiting_custom_choice', 'customer': customer})
-                    
-                    # Log analytics
-                    log_analytics('retail_menu_shown', {'phone': phone, 'customer': customer_name})
-            
-            else:
-                # NEW CUSTOMER - Registration Flow
-                message = 'Welcome to A Jewel Studio! 💎\n\nOrder karne ke liye pehle account banana hoga.\n\nNeeche diye gaye button se sign-up karein:'
-                signup_url = f'https://{SHOPIFY_STORE}/pages/join-us'
-                send_cta_url_button(phone, message, 'Sign Up', signup_url)
-                
-                # Set session
-                set_session(phone, {'state': 'awaiting_signup'})
-                
-                # Log analytics
-                log_analytics('new_customer_signup_prompt', {'phone': phone})
-        
-        # Order tracking
-        elif text.startswith('track') or text.startswith('order'):
-            handle_order_tracking(phone, text)
-        
-        # Help command
-        elif text in ['help', 'support']:
-            message = '🆘 *How can we help?*\n\n' \
-                     '• Type "Hi" - Main menu\n' \
-                     '• Type "Track ORDER123" - Track order\n' \
-                     '• Type "Catalogue" - Browse products\n\n' \
-                     'For urgent support, call us at +91-XXXXXXXXXX'
-            send_whatsapp_message(phone, message)
-        
-        else:
-            # Unknown command
-            message = 'Main aapki madad ke liye yahan hoon! 💎\n\n' \
-                     'Type "Hi" to start or "Help" for assistance.'
-            send_whatsapp_message(phone, message)
+        # Check for statuses (message delivery, read receipts)
+        elif 'statuses' in value:
+            statuses = value['statuses']
+            for status in statuses:
+                status_type = status.get('status')
+                print(f"📊 Status: {status_type}")
     
     except Exception as e:
-        print(f'❌ Text handler error: {e}')
-        handle_error(phone, 'Unable to process your message')
-
-# ==================== BUTTON RESPONSE HANDLER ====================
-
-def handle_button_response(phone, button_id, button_title):
-    """Handle button click responses"""
-    try:
-        print(f'🔘 Button clicked: {button_id} - {button_title}')
-        
-        customer = get_shopify_customer(phone)
-        customer_name = customer.get('first_name', 'Customer') if customer else 'Customer'
-        
-        # RETAIL - Custom Jewellery (Yes)
-        if 'yes' in button_id.lower():
-            message = f'Thank you {customer_name} for choosing us! 💍\n\n' \
-                     'Please book an appointment for custom jewellery consultation:'
-            appointment_url = f'https://{SHOPIFY_STORE}/products/custom-jewellery-consultation'
-            send_cta_url_button(phone, message, 'Book Appointment', appointment_url)
-            
-            # Log analytics
-            log_analytics('appointment_booking_initiated', {'phone': phone})
-        
-        # RETAIL/B2B - Browse Products (No) OR Catalogue Button
-        elif 'no' in button_id.lower() or 'catalogue' in button_id.lower():
-            message = f'Great {customer_name}! Browse our jewellery collection 💎\n\n' \
-                     'Add items to cart and place your order:'
-            send_whatsapp_catalog(phone, message)
-            
-            # Log analytics
-            log_analytics('catalog_browsing', {'phone': phone})
+        print(f"❌ Webhook error: {e}")
+        import traceback
+        traceback.print_exc()
     
-    except Exception as e:
-        print(f'❌ Button handler error: {e}')
-        handle_error(phone, 'Unable to process your selection')
+    print("=" * 60)
+    return jsonify({"status": "ok"}), 200
 
-# ==================== LIST RESPONSE HANDLER ====================
-
-def handle_list_response(phone, list_id, list_title):
-    """Handle list selection responses"""
-    try:
-        print(f'📋 List selected: {list_id} - {list_title}')
-        
-        # Future: Handle collection/category selections
-        message = f'You selected: {list_title}\n\nThis feature is coming soon! 🚀'
-        send_whatsapp_message(phone, message)
-    
-    except Exception as e:
-        print(f'❌ List handler error: {e}')
-        handle_error(phone, 'Unable to process your selection')
-# Part 4: Order Handling and Advanced Features
-
-# ==================== WHATSAPP CART ORDER HANDLER ====================
-
-def handle_whatsapp_cart_order(phone, order_data):
-    """Handle WhatsApp cart order - Native WhatsApp catalogue order"""
-    try:
-        customer = get_shopify_customer(phone)
-        
-        if not customer:
-            send_whatsapp_message(phone, 'Please register first by sending "Hi"')
-            return
-        
-        customer_name = customer.get('first_name', 'Customer')
-        customer_tags = customer.get('tags', '')
-        customer_email = customer.get('email', '')
-        
-        # Extract order details from WhatsApp cart
-        product_items = order_data.get('product_items', [])
-        
-        print(f'🛒 Processing order for {customer_name} ({phone})')
-        print(f'📦 Products: {len(product_items)} items')
-        
-        # Build order summary
-        order_summary = ''
-        total_items = 0
-        total_amount = 0
-        
-        for item in product_items:
-            product_retailer_id = item.get('product_retailer_id', 'Unknown')
-            quantity = item.get('quantity', 1)
-            item_price = item.get('item_price', 0)
-            currency = item.get('currency', 'INR')
-            
-            order_summary += f'• {product_retailer_id} x {quantity} - {currency} {item_price}\n'
-            total_items += quantity
-            total_amount += (item_price * quantity)
-        
-        # Check if B2B or Retail
-        if 'B2B' in customer_tags or 'Wholesaler' in customer_tags:
-            # B2B - Payment Required
-            print(f'💼 B2B Order - Total: ₹{total_amount}')
-            
-            # Generate Razorpay payment link
-            payment_response = generate_razorpay_link(
-                total_amount,
-                customer_name,
-                phone,
-                f'WA_{phone[-4:]}_{total_items}'
-            )
-            
-            if payment_response and payment_response.get('short_url'):
-                message = f'✅ *Order Received!*\n\n' \
-                         f'Customer: {customer_name}\n' \
-                         f'Items: {total_items}\n\n' \
-                         f'*Order Details:*\n{order_summary}\n' \
-                         f'*Total Amount: ₹{total_amount}*\n\n' \
-                         f'Please complete payment to proceed:'
-                
-                send_cta_url_button(phone, message, 'Pay Now', payment_response['short_url'])
-                
-                # Log analytics
-                log_analytics('b2b_order_created', {
-                    'phone': phone,
-                    'total': total_amount,
-                    'items': total_items
-                })
-            else:
-                send_whatsapp_message(phone, 'Payment link generation failed. Please contact support.')
-        
-        else:
-            # RETAIL - No immediate payment, manual follow-up
-            message = f'✅ *Thank you {customer_name} for your order!* 💎\n\n' \
-                     f'*Order Details:*\n{order_summary}\n' \
-                     f'*Total Items: {total_items}*\n\n' \
-                     f'A Jewel Studio ki team aapse estimated cost, discounts, offers aur payment ki jankari ke liye jald hi contact karegi.\n\n' \
-                     f'Aapka order process ho raha hai! 🎉'
-            
-            send_whatsapp_message(phone, message)
-            
-            # Log analytics
-            log_analytics('retail_order_created', {
-                'phone': phone,
-                'items': total_items
-            })
-    
-    except Exception as e:
-        print(f'❌ Order handler error: {e}')
-        handle_error(phone, 'Unable to process your order')
-
-# ==================== ORDER TRACKING ====================
-
-def handle_order_tracking(phone, text):
-    """Handle order tracking requests"""
-    try:
-        # Extract order number from text
-        words = text.split()
-        order_number = None
-        
-        for word in words:
-            if word.startswith('#') or word.isdigit():
-                order_number = word.replace('#', '')
-                break
-        
-        if not order_number:
-            message = '📦 *Order Tracking*\n\n' \
-                     'Please provide your order number.\n\n' \
-                     'Example: "Track #1234" or "Track 1234"'
-            send_whatsapp_message(phone, message)
-            return
-        
-        # Get order status from Shopify
-        url = f'https://{SHOPIFY_STORE}/admin/api/2024-01/orders.json?name={order_number}'
-        response = requests.get(url, headers=SHOPIFY_HEADERS)
-        data = response.json()
-        
-        if data.get('orders') and len(data['orders']) > 0:
-            order = data['orders'][0]
-            status = order.get('fulfillment_status', 'pending')
-            financial_status = order.get('financial_status', 'pending')
-            
-            message = f'📦 *Order #{order_number}*\n\n' \
-                     f'Status: {status.upper()}\n' \
-                     f'Payment: {financial_status.upper()}\n\n'
-            
-            if order.get('fulfillments') and len(order['fulfillments']) > 0:
-                fulfillment = order['fulfillments'][0]
-                tracking_number = fulfillment.get('tracking_number')
-                tracking_url = fulfillment.get('tracking_url')
-                
-                if tracking_number:
-                    message += f'Tracking Number: {tracking_number}\n'
-                
-                if tracking_url:
-                    send_cta_url_button(phone, message, 'Track Shipment', tracking_url)
-                else:
-                    send_whatsapp_message(phone, message)
-            else:
-                message += 'Your order is being processed. You will receive tracking details soon.'
-                send_whatsapp_message(phone, message)
-        else:
-            message = f'❌ Order #{order_number} not found.\n\n' \
-                     'Please check your order number and try again.'
-            send_whatsapp_message(phone, message)
-    
-    except Exception as e:
-        print(f'❌ Order tracking error: {e}')
-        handle_error(phone, 'Unable to track your order')
-
-# ==================== ABANDONED CART RECOVERY ====================
-
-def send_abandoned_cart_reminder(phone, cart_data):
-    """Send abandoned cart reminder (called by backend/scheduler)"""
-    try:
-        customer = get_shopify_customer(phone)
-        customer_name = customer.get('first_name', 'Customer') if customer else 'Customer'
-        
-        message = f'👋 Hi {customer_name}!\n\n' \
-                 f'You left some items in your cart. 🛒\n\n' \
-                 f'Complete your purchase now and get 10% OFF! 🎉\n\n' \
-                 f'Use code: COMEBACK10'
-        
-        send_whatsapp_buttons(phone, message, ['View Cart', 'Continue Shopping'])
-        
-        # Log analytics
-        log_analytics('abandoned_cart_reminder', {'phone': phone})
-        
-        print(f'🔔 Abandoned cart reminder sent to {phone}')
-        return True
-    
-    except Exception as e:
-        print(f'❌ Abandoned cart error: {e}')
-        return False
-
-# ==================== BIRTHDAY/ANNIVERSARY WISHES ====================
-
-def send_birthday_wish(phone, customer_name):
-    """Send birthday wishes with special offer"""
-    try:
-        message = f'🎉 *Happy Birthday {customer_name}!* 🎂\n\n' \
-                 f'A Jewel Studio wishes you a wonderful day! 💎\n\n' \
-                 f'As a birthday gift, enjoy 15% OFF on your next purchase!\n\n' \
-                 f'Use code: BDAY15\n\n' \
-                 f'Valid for 7 days. Shop now:'
-        
-        send_whatsapp_catalog(phone, message)
-        
-        # Log analytics
-        log_analytics('birthday_wish_sent', {'phone': phone})
-        
-        print(f'🎂 Birthday wish sent to {phone}')
-        return True
-    
-    except Exception as e:
-        print(f'❌ Birthday wish error: {e}')
-        return False
-
-def send_anniversary_wish(phone, customer_name):
-    """Send anniversary wishes with special offer"""
-    try:
-        message = f'💍 *Happy Anniversary {customer_name}!* 🎊\n\n' \
-                 f'Celebrate your special day with A Jewel Studio! 💎\n\n' \
-                 f'Enjoy 20% OFF on all jewellery!\n\n' \
-                 f'Use code: ANNIV20\n\n' \
-                 f'Valid for 7 days. Shop now:'
-        
-        send_whatsapp_catalog(phone, message)
-        
-        # Log analytics
-        log_analytics('anniversary_wish_sent', {'phone': phone})
-        
-        print(f'💍 Anniversary wish sent to {phone}')
-        return True
-    
-    except Exception as e:
-        print(f'❌ Anniversary wish error: {e}')
-        return False
-
-# ==================== BROADCAST CAMPAIGNS ====================
-
-def send_broadcast_message(phone_list, message, button_text=None, button_url=None):
-    """Send broadcast message to multiple customers"""
-    try:
-        success_count = 0
-        
-        for phone in phone_list:
-            try:
-                if button_text and button_url:
-                    send_cta_url_button(phone, message, button_text, button_url)
-                else:
-                    send_whatsapp_message(phone, message)
-                
-                success_count += 1
-                time.sleep(1)  # Rate limiting
-            except Exception as e:
-                print(f'❌ Broadcast failed for {phone}: {e}')
-        
-        print(f'📢 Broadcast sent to {success_count}/{len(phone_list)} customers')
-        return success_count
-    
-    except Exception as e:
-        print(f'❌ Broadcast error: {e}')
-        return 0
-# Part 5: Payment Callbacks and Server Initialization
-
-# ==================== PAYMENT WEBHOOKS ====================
+# ═══════════════════════════════════════════════════════════
+# PAYMENT CALLBACK ROUTE
+# ═══════════════════════════════════════════════════════════
 
 @app.route('/payment/callback', methods=['GET', 'POST'])
 def payment_callback():
-    """Handle Razorpay payment status"""
+    """Razorpay payment callback"""
     try:
         if request.method == 'GET':
+            # URL callback with query params
             payment_id = request.args.get('razorpay_payment_id')
             payment_link_id = request.args.get('razorpay_payment_link_id')
+            status = request.args.get('razorpay_payment_link_status')
             
-            print(f'💳 Payment callback: {payment_id}')
-            return 'Payment successful! Check WhatsApp for confirmation.', 200
+            print(f"💳 Payment callback: {payment_id} | Status: {status}")
+            
+            # You can redirect to a thank you page or return success message
+            return jsonify({
+                "status": "success",
+                "message": "Payment processed"
+            }), 200
         
-        if request.method == 'POST':
-            data = request.json
-            print(f'💳 Payment webhook: {json.dumps(data, indent=2)}')
-            
-            # Payment successful
-            if data.get('event') == 'payment_link.paid':
-                payment_link = data['payload']['payment_link']['entity']
-                customer_phone = payment_link['customer']['contact']
-                customer_email = payment_link['customer'].get('email', '')
-                amount_paid = payment_link['amount'] / 100  # Convert paise to rupees
-                
-                message = '✅ *Payment Successful!*\n\n' \
-                         f'Amount Paid: ₹{amount_paid}\n\n' \
-                         'Thank you for doing Business with A Jewel Studio! 💎\n\n' \
-                         'Aapki Design File aapke registered Email ID pe bhej di gayi hai.'
-                
-                download_link = f'https://{SHOPIFY_STORE}/account/orders'
-                send_cta_url_button(customer_phone, message, 'Download Files', download_link)
-                
-                # Log analytics
-                log_analytics('payment_successful', {
-                    'phone': customer_phone,
-                    'amount': amount_paid
-                })
-            
-            # Payment failed/cancelled
-            elif data.get('event') in ['payment_link.cancelled', 'payment_link.expired']:
-                payment_link = data['payload']['payment_link']['entity']
-                customer_phone = payment_link['customer']['contact']
-                
-                message = '❌ Your Payment was not successful.\n\n' \
-                         'Please click the Pay Now button to retry:'
-                
-                send_cta_url_button(customer_phone, message, 'Pay Now', payment_link['short_url'])
-                
-                # Log analytics
-                log_analytics('payment_failed', {'phone': customer_phone})
-            
-            return jsonify({'status': 'ok'}), 200
+        elif request.method == 'POST':
+            # Webhook callback
+            data = request.get_json()
+            handle_payment_callback(data)
+            return jsonify({"status": "ok"}), 200
     
     except Exception as e:
-        print(f'❌ Payment callback error: {e}')
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        print(f"Payment callback error: {e}")
+        return jsonify({"status": "error"}), 500
 
-# ==================== HEALTH CHECK ====================
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'AJewelBot v2',
-        'version': '2.0.0',
-        'features': 70,
-        'uptime': time.time(),
-        'sessions': len(user_sessions),
-        'sheets_log': len(google_sheets_log)
-    }), 200
-
-# ==================== ADMIN ENDPOINTS ====================
-
-@app.route('/admin/sessions', methods=['GET'])
-def get_sessions():
-    """Get active sessions (admin only)"""
-    return jsonify({
-        'total_sessions': len(user_sessions),
-        'sessions': user_sessions
-    }), 200
+# ═══════════════════════════════════════════════════════════
+# ADMIN ROUTES
+# ═══════════════════════════════════════════════════════════
 
 @app.route('/admin/broadcast', methods=['POST'])
 def admin_broadcast():
-    """Send broadcast message (admin only)"""
+    """Admin endpoint for broadcast messages"""
     try:
-        data = request.json
+        data = request.get_json()
         phone_list = data.get('phone_list', [])
         message = data.get('message', '')
         button_text = data.get('button_text')
         button_url = data.get('button_url')
         
         if not phone_list or not message:
-            return jsonify({'error': 'phone_list and message required'}), 400
+            return jsonify({
+                "success": False,
+                "message": "phone_list and message are required"
+            }), 400
         
         success_count = send_broadcast_message(phone_list, message, button_text, button_url)
         
         return jsonify({
-            'status': 'success',
-            'sent': success_count,
-            'total': len(phone_list)
+            "success": True,
+            "message": f"Broadcast sent to {success_count}/{len(phone_list)} customers"
         }), 200
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Broadcast error: {e}")
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
 
-# ==================== ERROR HANDLERS ====================
+@app.route('/admin/send-birthday-wishes', methods=['POST'])
+def admin_send_birthday_wishes():
+    """Admin endpoint to trigger birthday wishes"""
+    try:
+        data = request.get_json()
+        customers = data.get('customers', [])
+        
+        for customer in customers:
+            phone = customer.get('phone')
+            name = customer.get('name')
+            if phone and name:
+                send_birthday_wish(phone, name)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Birthday wishes sent to {len(customers)} customers"
+        }), 200
+    
+    except Exception as e:
+        print(f"Birthday wishes error: {e}")
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@app.route('/admin/send-anniversary-wishes', methods=['POST'])
+def admin_send_anniversary_wishes():
+    """Admin endpoint to trigger anniversary wishes"""
+    try:
+        data = request.get_json()
+        customers = data.get('customers', [])
+        
+        for customer in customers:
+            phone = customer.get('phone')
+            name = customer.get('name')
+            if phone and name:
+                send_anniversary_wish(phone, name)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Anniversary wishes sent to {len(customers)} customers"
+        }), 200
+    
+    except Exception as e:
+        print(f"Anniversary wishes error: {e}")
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@app.route('/admin/send-abandoned-cart', methods=['POST'])
+def admin_send_abandoned_cart():
+    """Admin endpoint to trigger abandoned cart reminders"""
+    try:
+        data = request.get_json()
+        customers = data.get('customers', [])
+        
+        for customer in customers:
+            phone = customer.get('phone')
+            cart_data = customer.get('cart_data', {})
+            if phone:
+                send_abandoned_cart_reminder(phone, cart_data)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Abandoned cart reminders sent to {len(customers)} customers"
+        }), 200
+    
+    except Exception as e:
+        print(f"Abandoned cart error: {e}")
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@app.route('/admin/sessions', methods=['GET'])
+def admin_get_sessions():
+    """Admin endpoint to view active sessions"""
+    try:
+        sessions_data = []
+        for phone, session in user_sessions.items():
+            sessions_data.append({
+                'phone': phone,
+                'state': session.get('state'),
+                'last_activity': session.get('last_activity').isoformat() if session.get('last_activity') else None,
+                'created_at': session.get('created_at').isoformat() if session.get('created_at') else None
+            })
+        
+        return jsonify({
+            "success": True,
+            "count": len(sessions_data),
+            "sessions": sessions_data
+        }), 200
+    
+    except Exception as e:
+        print(f"Sessions error: {e}")
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@app.route('/admin/clear-session/<phone>', methods=['DELETE'])
+def admin_clear_session(phone):
+    """Admin endpoint to clear a specific session"""
+    try:
+        clear_session(phone)
+        return jsonify({
+            "success": True,
+            "message": f"Session cleared for {phone}"
+        }), 200
+    
+    except Exception as e:
+        print(f"Clear session error: {e}")
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+# ═══════════════════════════════════════════════════════════
+# ERROR HANDLERS
+# ═══════════════════════════════════════════════════════════
 
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({'error': 'Not found'}), 404
+    return jsonify({
+        "success": False,
+        "message": "Endpoint not found"
+    }), 404
 
 @app.errorhandler(500)
 def internal_error(error):
-    return jsonify({'error': 'Internal server error'}), 500
+    return jsonify({
+        "success": False,
+        "message": "Internal server error"
+    }), 500
 
-# ==================== RUN SERVER ====================
+# ═══════════════════════════════════════════════════════════
+# RUN APPLICATION
+# ═══════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
     
-    print('=' * 60)
-    print('🚀 AJewelBot v2 WhatsApp Bot Starting...')
-    print('=' * 60)
-    print(f'✅ Port: {port}')
-    print(f'✅ Shopify Store: {SHOPIFY_STORE}')
-    print(f'✅ WhatsApp Phone ID: {WHATSAPP_PHONE_ID}')
-    print(f'✅ Backend URL: {BACKEND_URL}')
-    print(f'✅ Keep-alive: Active')
-    print(f'✅ Features: 70')
-    print('=' * 60)
-    print('📱 WhatsApp Bot Ready!')
-    print('💎 A Jewel Studio - Automation Active')
-    print('=' * 60)
+    print("=" * 60)
+    print("🚀 AJewelBot v3 - Professional WhatsApp Commerce Bot")
+    print("=" * 60)
+    print(f"✅ Server starting on port {port}")
+    print(f"✅ WhatsApp Phone ID: {WHATSAPP_PHONE_ID}")
+    print(f"✅ Shopify Store: {SHOPIFY_STORE}")
+    print(f"✅ Backend API: {BACKEND_API_URL}")
+    print(f"✅ Logo URL: {LOGO_IMAGE_URL}")
+    print(f"✅ Session timeout: {SESSION_TIMEOUT} seconds")
+    print(f"✅ Keep-alive: Active (12-min ping)")
+    print("=" * 60)
+    print("📊 Available Endpoints:")
+    print("   GET  /")
+    print("   GET  /webhook (verification)")
+    print("   POST /webhook (messages)")
+    print("   GET  /payment/callback")
+    print("   POST /payment/callback")
+    print("   POST /admin/broadcast")
+    print("   POST /admin/send-birthday-wishes")
+    print("   POST /admin/send-anniversary-wishes")
+    print("   POST /admin/send-abandoned-cart")
+    print("   GET  /admin/sessions")
+    print("   DELETE /admin/clear-session/<phone>")
+    print("=" * 60)
+    print("🎯 Flow Architecture:")
+    print("   ✅ New Customer → Signup")
+    print("   ✅ B2B Customer → Catalog → Payment")
+    print("   ✅ Retail Customer → Custom/Browse")
+    print("   ✅ Order Tracking")
+    print("   ✅ Referral System")
+    print("   ✅ Abandoned Cart Recovery")
+    print("   ✅ Birthday/Anniversary Wishes")
+    print("=" * 60)
+    print("🔥 Bot is LIVE and ready to receive messages!")
+    print("=" * 60)
     
     app.run(host='0.0.0.0', port=port, debug=False)
