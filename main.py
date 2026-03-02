@@ -62,26 +62,29 @@ def check_customer_status(phone_number):
         
         rows = result.get('values', [])
         
-        for i, row in enumerate(rows):
-            if len(row) > 0 and row[0] == phone_number:
-                first_name = row[1] if len(row) > 1 else ''
-                last_name = row[2] if len(row) > 2 else ''
+        # Skip header row (start from index 1)
+        for i, row in enumerate(rows[1:], start=2):
+            if len(row) > 0 and row[0].strip() == phone_number.strip():
+                first_name = row[1].strip() if len(row) > 1 else ''
+                last_name = row[2].strip() if len(row) > 2 else ''
                 has_form_data = bool(first_name or last_name)
+                
+                print(f'✅ Found customer: {first_name} {last_name}')
                 
                 return {
                     'exists': True,
-                    'row_number': i + 1,
+                    'row_number': i,
                     'first_name': first_name,
                     'last_name': last_name,
                     'has_form_data': has_form_data
                 }
         
+        print(f'❌ Customer not found: {phone_number}')
         return {'exists': False}
     
     except Exception as e:
         print(f'❌ Error checking customer: {e}')
         return {'exists': False}
-
 
 def log_phone_number(phone_number):
     """Log phone number to Google Sheet Column A (no duplicates)"""
@@ -146,15 +149,17 @@ def send_whatsapp_message(to, message_text):
 
 def send_welcome_back_message(to, first_name, last_name):
     """Send welcome back message to registered customer"""
-    message = f"""Welcome back, {first_name} {last_name}! 👋
+    message = f"""Hello {first_name} {last_name}! 👋
 
-How can I help you today?
+Welcome back to A.Jewel.Studio.
 
-1️⃣ View Catalog
-2️⃣ Track Order
-3️⃣ Contact Support
+How may I assist you today?
 
-Reply with a number to continue."""
+1️⃣ View Our Collection
+2️⃣ Track Your Order
+3️⃣ Speak with Support
+
+Please reply with a number."""
     
     send_whatsapp_message(to, message)
 
