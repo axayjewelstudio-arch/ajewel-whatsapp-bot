@@ -405,24 +405,121 @@ def send_retail_welcome(to_number, customer_name):
     message = f"Welcome, {customer_name}.\n\nWe are delighted to have you here.\nPlease select an option below to get started."
     
     buttons = [
-        {"id": "browse_collections", "title": "Browse Collections"},
-        {"id": "customise_product", "title": "Customise a Product"},
-        {"id": "my_orders", "title": "My Orders"}
+        {
+            "type": "reply",
+            "reply": {
+                "id": "browse_collections",
+                "title": "Browse Collections"
+            }
+        },
+        {
+            "type": "reply",
+            "reply": {
+                "id": "customise_product",
+                "title": "Customise Product"
+            }
+        },
+        {
+            "type": "reply",
+            "reply": {
+                "id": "my_orders",
+                "title": "My Orders"
+            }
+        }
     ]
     
-    send_whatsapp_buttons(to_number, message, buttons)
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": message
+            },
+            "action": {
+                "buttons": buttons
+            }
+        }
+    }
+    
+    try:
+        r = requests.post(url, json=payload, headers=headers)
+        print(f"Retail welcome sent to {to_number}: {r.status_code}")
+        if r.status_code != 200:
+            print(f"Error response: {r.text}")
+        return r.json()
+    except Exception as e:
+        print(f"Error sending retail welcome: {e}")
+        return None
 
 def send_b2b_welcome(to_number, customer_name):
     """Flow 2B: Returning B2B customer"""
     message = f"Welcome, {customer_name}.\n\nWe are delighted to have you here.\nPlease select an option below to get started."
     
     buttons = [
-        {"id": "browse_digital_files", "title": "Browse Digital Files"},
-        {"id": "request_custom_file", "title": "Request Custom File"},
-        {"id": "my_orders", "title": "My Orders"}
+        {
+            "type": "reply",
+            "reply": {
+                "id": "browse_digital_files",
+                "title": "Browse Files"
+            }
+        },
+        {
+            "type": "reply",
+            "reply": {
+                "id": "request_custom_file",
+                "title": "Custom File"
+            }
+        },
+        {
+            "type": "reply",
+            "reply": {
+                "id": "my_orders",
+                "title": "My Orders"
+            }
+        }
     ]
     
-    send_whatsapp_buttons(to_number, message, buttons)
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": message
+            },
+            "action": {
+                "buttons": buttons
+            }
+        }
+    }
+    
+    try:
+        r = requests.post(url, json=payload, headers=headers)
+        print(f"B2B welcome sent to {to_number}: {r.status_code}")
+        if r.status_code != 200:
+            print(f"Error response: {r.text}")
+        return r.json()
+    except Exception as e:
+        print(f"Error sending B2B welcome: {e}")
+        return None
+
 
 # ═══════════════════════════════════════════════════════════
 # FLOW MESSAGES - SUPPORT
