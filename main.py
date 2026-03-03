@@ -27,7 +27,7 @@ GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
 SHOPIFY_STORE = os.getenv('SHOPIFY_STORE', 'a-jewel-studio-3.myshopify.com')
 SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
 BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'https://ajewelbot-v2-backend.onrender.com')
-GEMINI_API_KEY = 'AIzaSyAI_7J57EpfoQoBlCVJtVHdpj_YR4x6GTY'
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyAI_7J57EpfoQoBlCVJtVHdpj_YR4x6GTY')
 
 # ── Configure Gemini AI ──
 genai.configure(api_key=GEMINI_API_KEY)
@@ -48,10 +48,7 @@ user_sessions = {}
 # ═══════════════════════════════════════════════════════════
 
 def get_ai_response(customer_message, customer_name='Customer', customer_type='Retail'):
-    """
-    Get professional AI response using Gemini
-    Only used when message doesn't match any flow
-    """
+    """Get professional AI response using Gemini"""
     try:
         system_prompt = f"""You are a professional customer service representative for A Jewel Studio, a premium jewellery brand.
 
@@ -89,7 +86,6 @@ Respond professionally as an A Jewel Studio employee:"""
         response = gemini_model.generate_content(system_prompt)
         ai_reply = response.text.strip()
         
-        # Add professional closing if not present
         if not any(word in ai_reply.lower() for word in ['regards', 'help', 'assist']):
             ai_reply += "\n\nHow else may I assist you today?"
         
@@ -146,19 +142,14 @@ def is_b2b_customer(customer):
     if not customer:
         return False
     tags = customer.get('tags', '').lower()
-    return 'b2b' in tags or 'wholesaler' in tags
+    return 'b2b' in tags or 'wholesaler' in tags or 'wholesale' in tags
 
 # ═══════════════════════════════════════════════════════════
 # CUSTOMER STATUS CHECK
 # ═══════════════════════════════════════════════════════════
 
 def check_customer_status(phone_number):
-    """
-    Check customer status:
-    1. Google Sheets (Column A - WhatsApp log)
-    2. Google Sheets (Columns B-AQ - Form data)
-    3. Shopify (Customer + Tags)
-    """
+    """Check customer status"""
     try:
         sheet = get_google_sheet()
         if not sheet:
@@ -300,27 +291,48 @@ def send_whatsapp_image(to_number, image_url, caption=''):
         return None
 
 def send_whatsapp_buttons(to_number, body_text, buttons):
-    """Send interactive buttons (max 3)"""
+    """Send interactive buttons - FIXED FORMAT"""
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
     }
+    
+    # Format buttons properly
+    formatted_buttons = []
+    for btn in buttons[:3]:  # Max 3 buttons
+        formatted_buttons.append({
+            "type": "reply",
+            "reply": {
+                "id": btn.get('id', 'btn_' + str(len(formatted_buttons))),
+                "title": btn.get('title', 'Option')[:20]  # Max 20 chars
+            }
+        })
+    
     payload = {
         "messaging_product": "whatsapp",
+        "recipient_type": "individual",
         "to": to_number,
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": body_text},
+            "body": {
+                "text": body_text[:1024]  # Max 1024 chars
+            },
             "action": {
-                "buttons": buttons[:3]
+                "buttons": formatted_buttons
             }
         }
     }
+    
     try:
         r = requests.post(url, json=payload, headers=headers)
         print(f"Buttons sent to {to_number}: {r.status_code}")
+        if r.status_code != 200:
+            print(f"Button error response: {r.text}")
+            # Fallback to text
+            button_text = "\n".join([f"{i+1}. {btn['title']}" for i, btn in enumerate(buttons)])
+            return send_whatsapp_text(to_number, f"{body_text}\n\n{button_text}")
         return r.json()
     except Exception as e:
         print(f"WhatsApp buttons error: {e}")
@@ -336,15 +348,16 @@ def send_whatsapp_cta_button(to_number, body_text, button_text, button_url):
     }
     payload = {
         "messaging_product": "whatsapp",
+        "recipient_type": "individual",
         "to": to_number,
         "type": "interactive",
         "interactive": {
             "type": "cta_url",
-            "body": {"text": body_text},
+            "body": {"text": body_text[:1024]},
             "action": {
                 "name": "cta_url",
                 "parameters": {
-                    "display_text": button_text,
+                    "display_text": button_text[:20],
                     "url": button_url
                 }
             }
@@ -356,13 +369,14 @@ def send_whatsapp_cta_button(to_number, body_text, button_text, button_url):
             print(f"CTA button sent to {to_number}")
             return r.json()
         else:
-            print(f"CTA button failed, sending text fallback")
+            print(f"CTA button failed: {r.text}")
             fallback = f"{body_text}\n\n{button_text}: {button_url}"
             return send_whatsapp_text(to_number, fallback)
     except Exception as e:
         print(f"WhatsApp CTA button error: {e}")
         fallback = f"{body_text}\n\n{button_text}: {button_url}"
         return send_whatsapp_text(to_number, fallback)
+
 # ═══════════════════════════════════════════════════════════
 # FLOW MESSAGES - NEW CUSTOMER
 # ═══════════════════════════════════════════════════════════
@@ -375,6 +389,7 @@ def send_new_customer_welcome(to_number):
             LOGO_IMAGE_URL,
             caption="Welcome to\n\n*A Jewel Studio*"
         )
+        time.sleep(2)
     
     join_url = f"{JOIN_US_URL}?wa={to_number}"
     send_whatsapp_cta_button(
@@ -405,121 +420,24 @@ def send_retail_welcome(to_number, customer_name):
     message = f"Welcome, {customer_name}.\n\nWe are delighted to have you here.\nPlease select an option below to get started."
     
     buttons = [
-        {
-            "type": "reply",
-            "reply": {
-                "id": "browse_collections",
-                "title": "Browse Collections"
-            }
-        },
-        {
-            "type": "reply",
-            "reply": {
-                "id": "customise_product",
-                "title": "Customise Product"
-            }
-        },
-        {
-            "type": "reply",
-            "reply": {
-                "id": "my_orders",
-                "title": "My Orders"
-            }
-        }
+        {"id": "browse_collections", "title": "Browse Collections"},
+        {"id": "customise_product", "title": "Customise Product"},
+        {"id": "my_orders", "title": "My Orders"}
     ]
     
-    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_number,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {
-                "text": message
-            },
-            "action": {
-                "buttons": buttons
-            }
-        }
-    }
-    
-    try:
-        r = requests.post(url, json=payload, headers=headers)
-        print(f"Retail welcome sent to {to_number}: {r.status_code}")
-        if r.status_code != 200:
-            print(f"Error response: {r.text}")
-        return r.json()
-    except Exception as e:
-        print(f"Error sending retail welcome: {e}")
-        return None
+    send_whatsapp_buttons(to_number, message, buttons)
 
 def send_b2b_welcome(to_number, customer_name):
     """Flow 2B: Returning B2B customer"""
     message = f"Welcome, {customer_name}.\n\nWe are delighted to have you here.\nPlease select an option below to get started."
     
     buttons = [
-        {
-            "type": "reply",
-            "reply": {
-                "id": "browse_digital_files",
-                "title": "Browse Files"
-            }
-        },
-        {
-            "type": "reply",
-            "reply": {
-                "id": "request_custom_file",
-                "title": "Custom File"
-            }
-        },
-        {
-            "type": "reply",
-            "reply": {
-                "id": "my_orders",
-                "title": "My Orders"
-            }
-        }
+        {"id": "browse_digital_files", "title": "Browse Files"},
+        {"id": "request_custom_file", "title": "Custom File"},
+        {"id": "my_orders", "title": "My Orders"}
     ]
     
-    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_number,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {
-                "text": message
-            },
-            "action": {
-                "buttons": buttons
-            }
-        }
-    }
-    
-    try:
-        r = requests.post(url, json=payload, headers=headers)
-        print(f"B2B welcome sent to {to_number}: {r.status_code}")
-        if r.status_code != 200:
-            print(f"Error response: {r.text}")
-        return r.json()
-    except Exception as e:
-        print(f"Error sending B2B welcome: {e}")
-        return None
-
+    send_whatsapp_buttons(to_number, message, buttons)
 
 # ═══════════════════════════════════════════════════════════
 # FLOW MESSAGES - SUPPORT
@@ -549,27 +467,20 @@ Our designs are crafted with precision and made available through a network of a
     
     send_whatsapp_buttons(to_number, message, buttons)
 
-def send_connect_with_us(to_number, message_text):
-    """Send message with Connect with Us button"""
-    buttons = [
-        {"id": "connect_support", "title": "Connect with Us"}
-    ]
-    send_whatsapp_buttons(to_number, message_text, buttons)
-
 def send_unrecognised_message(to_number, customer_type='Retail'):
     """Unrecognised message fallback"""
     message = "Thank you for reaching out to A Jewel Studio.\nWe could not understand your message. Please select an option below so we can assist you better."
     
-    if customer_type == 'B2B':
+    if customer_type == 'B2B' or customer_type == 'Wholesale':
         buttons = [
-            {"id": "browse_digital_files", "title": "Browse Digital Files"},
-            {"id": "request_custom_file", "title": "Request Custom File"},
+            {"id": "browse_digital_files", "title": "Browse Files"},
+            {"id": "request_custom_file", "title": "Custom File"},
             {"id": "my_orders", "title": "My Orders"}
         ]
     else:
         buttons = [
             {"id": "browse_collections", "title": "Browse Collections"},
-            {"id": "customise_product", "title": "Customise a Product"},
+            {"id": "customise_product", "title": "Customise Product"},
             {"id": "my_orders", "title": "My Orders"}
         ]
     
@@ -583,31 +494,24 @@ def detect_keyword(message_text):
     """Detect keywords in customer message"""
     message_lower = message_text.lower().strip()
     
-    # Greetings
     if any(word in message_lower for word in ['hi', 'hello', 'hey', 'namaste', 'hii', 'helo']):
         return 'greeting'
     
-    # Business hours
     if any(word in message_lower for word in ['business hours', 'timing', 'when available', 'open', 'time']):
         return 'business_hours'
     
-    # About
     if any(word in message_lower for word in ['about', 'tell me about', 'who are you', 'what is']):
         return 'about'
     
-    # Orders
     if any(word in message_lower for word in ['my orders', 'order status', 'track order', 'track']):
         return 'my_orders'
     
-    # Order tracking with ID
     if message_lower.startswith('track #') or message_lower.startswith('track#'):
         return 'track_order_id'
     
-    # Referral
     if 'referral' in message_lower or 'refer' in message_lower:
         return 'referral'
     
-    # Help
     if 'help' in message_lower or 'support' in message_lower:
         return 'help'
     
@@ -620,7 +524,6 @@ def detect_keyword(message_text):
 def track_order(to_number, order_id):
     """Track order by ID"""
     try:
-        # Fetch from backend API
         response = requests.get(f"{BACKEND_API_URL}/api/orders/track/{order_id}")
         
         if response.status_code == 200:
@@ -693,7 +596,7 @@ def handle_button_click(button_id, from_number, customer_type='Retail'):
     elif button_id == 'request_custom_file':
         message = "We would be happy to create a custom 3D jewellery file based on your requirements.\n\nPlease connect with our team directly. Share your photo or design reference and we will provide a quote at the earliest."
         buttons = [
-            {"id": "connect_support", "title": "Connect with Our Team"}
+            {"id": "connect_support", "title": "Connect with Team"}
         ]
         send_whatsapp_buttons(from_number, message, buttons)
     
@@ -705,28 +608,20 @@ def handle_button_click(button_id, from_number, customer_type='Retail'):
         send_whatsapp_buttons(from_number, message, buttons)
     
     elif button_id == 'book_appointment':
-        message = "To book an appointment, please contact our team directly.\n\nOur team will help you schedule a convenient time for your consultation."
-        buttons = [
-            {"id": "connect_support", "title": "Connect with Our Team"}
-        ]
-        send_whatsapp_buttons(from_number, message, buttons)
+        message = "To book an appointment, please share your preferred date and time.\n\nOur team will confirm your appointment shortly."
+        send_whatsapp_text(from_number, message)
     
     elif button_id == 'connect_support':
-        message = f"""Our team is here to help you.
-
-Business Hours:
-Monday to Saturday: 10:00 AM to 7:00 PM
-
-Please call or WhatsApp us at:
-+91 {CUSTOMER_CARE_NUMBER}"""
+        message = f"Our team is here to help you.\n\nBusiness Hours: Monday to Saturday, 10:00 AM to 7:00 PM\n\nContact: +91 {CUSTOMER_CARE_NUMBER}"
         send_whatsapp_text(from_number, message)
     
     elif button_id.startswith('cat_'):
-        message = "Please browse our WhatsApp catalog to view products in this category.\n\nTap the catalog icon in the chat to explore our collection."
+        message = "Please browse our WhatsApp catalog to view products in this category.\n\nTap the catalog icon (🛍️) in the chat to explore our collection."
         send_whatsapp_text(from_number, message)
     
     else:
         send_unrecognised_message(from_number, customer_type)
+
 # ═══════════════════════════════════════════════════════════
 # ROUTES
 # ═══════════════════════════════════════════════════════════
@@ -748,7 +643,6 @@ def home():
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
-    # ── GET: Verification ──
     if request.method == 'GET':
         mode = request.args.get('hub.mode')
         token = request.args.get('hub.verify_token')
@@ -758,7 +652,6 @@ def webhook():
             return challenge, 200
         return 'Forbidden', 403
 
-    # ── POST: Incoming Message ──
     data = request.get_json()
     print("=" * 60)
     
@@ -776,7 +669,6 @@ def webhook():
 
         print(f"Phone: {from_number} | Type: {message_type}")
 
-        # ── Handle Button Clicks ──
         if message_type == 'interactive':
             interactive = message.get('interactive', {})
             button_reply = interactive.get('button_reply', {})
@@ -788,21 +680,17 @@ def webhook():
             handle_button_click(button_id, from_number, customer_type)
             return jsonify({"status": "ok"}), 200
 
-        # ── Handle Text Messages ──
         if message_type == 'text':
             message_body = message['text']['body']
             print(f"Message: {message_body}")
 
-            # Check customer status
             customer_status = check_customer_status(from_number)
 
-            # ── NEW CUSTOMER ──
             if not customer_status['exists']:
                 print("NEW CUSTOMER")
                 add_number_to_sheet(from_number)
                 send_new_customer_welcome(from_number)
             
-            # ── INCOMPLETE REGISTRATION ──
             elif customer_status['exists'] and not customer_status['has_form_data']:
                 print("INCOMPLETE REGISTRATION")
                 
@@ -817,11 +705,9 @@ def webhook():
                 elif keyword == 'help':
                     send_complete_registration(from_number)
                 else:
-                    # Use AI for unrecognized messages
                     ai_response = get_ai_response(message_body, 'Customer', 'Retail')
                     send_whatsapp_text(from_number, ai_response)
             
-            # ── RETURNING CUSTOMER ──
             else:
                 print("RETURNING CUSTOMER")
                 customer_name = customer_status.get('name', 'Customer')
@@ -830,7 +716,7 @@ def webhook():
                 keyword = detect_keyword(message_body)
                 
                 if keyword == 'greeting':
-                    if customer_type == 'B2B':
+                    if customer_type == 'B2B' or customer_type == 'Wholesale':
                         send_b2b_welcome(from_number, customer_name)
                     else:
                         send_retail_welcome(from_number, customer_name)
@@ -844,18 +730,17 @@ def webhook():
                 elif keyword == 'track_order_id':
                     order_id = message_body.replace('track', '').replace('Track', '').replace('#', '').strip()
                     track_order(from_number, order_id)
-                
+                                
                 elif keyword == 'referral':
                     send_referral_info(from_number, customer_name)
                 
                 elif keyword == 'help':
-                    if customer_type == 'B2B':
+                    if customer_type == 'B2B' or customer_type == 'Wholesale':
                         send_b2b_welcome(from_number, customer_name)
                     else:
                         send_retail_welcome(from_number, customer_name)
                 
                 else:
-                    # Use AI for unrecognized messages
                     ai_response = get_ai_response(message_body, customer_name, customer_type)
                     send_whatsapp_text(from_number, ai_response)
 
@@ -864,10 +749,6 @@ def webhook():
 
     print("=" * 60)
     return jsonify({"status": "ok"}), 200
-
-# ═══════════════════════════════════════════════════════════
-# RUN
-# ═══════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
@@ -879,3 +760,4 @@ if __name__ == '__main__':
     print("✅ Gemini AI Support Enabled")
     print("✅ Multi-language Support Active")
     app.run(host='0.0.0.0', port=port, debug=False)
+    
