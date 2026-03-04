@@ -27,7 +27,7 @@ GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
 SHOPIFY_STORE = os.getenv('SHOPIFY_STORE', 'a-jewel-studio-3.myshopify.com')
 SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
 BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'https://ajewelbot-v2-backend.onrender.com')
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyAI_7J57EpfoQoBlCVJtVHdpj_YR4x6GTY')
+GEMINI_API_KEY = 'AIzaSyAI_7J57EpfoQoBlCVJtVHdpj_YR4x6GTY'
 
 # ── Configure Gemini AI ──
 genai.configure(api_key=GEMINI_API_KEY)
