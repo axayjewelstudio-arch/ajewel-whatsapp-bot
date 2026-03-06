@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-A Jewel Studio WhatsApp Bot - Menu System Only
+A Jewel Studio WhatsApp Bot - Menu System Fixed
 """
 
 import os
@@ -155,6 +155,20 @@ def send_cta(to, text, btn_text, url_link):
     except:
         return False
 
+# WhatsApp - Catalog Message (FIXED)
+def send_catalog(to, body_text="Browse our collection"):
+    """Send WhatsApp native catalog - opens directly in WhatsApp"""
+    try:
+        url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
+        r = requests.post(url, headers={'Authorization': f'Bearer {WHATSAPP_TOKEN}', 'Content-Type': 'application/json'},
+                         json={'messaging_product': 'whatsapp', 'recipient_type': 'individual', 'to': to, 'type': 'interactive',
+                              'interactive': {'type': 'catalog_message', 'body': {'text': body_text}, 'action': {'name': 'catalog_message'}}}, timeout=10)
+        logger.info(f"Catalog sent: {r.status_code}")
+        return r.status_code == 200
+    except Exception as e:
+        logger.error(f"Catalog error: {str(e)}")
+        return False
+
 # Main Categories
 MAIN_CATEGORIES = [
     {'id': 'cat_baby', 'title': 'Baby Jewellery'},
@@ -187,29 +201,6 @@ SUB_CATEGORIES = {
         {'id': 'men_accessories', 'title': 'Accessories'}
     ]
 }
-
-# Catalog IDs (Your collection IDs)
-CATALOG_IDS = {
-    'baby_hair': '26930579176543121',
-    'baby_earrings': '34197166099927645',
-    'baby_chain': '34159752333640697',
-    'baby_rings': '27130321023234461',
-    'baby_payal': '26132380466413425',
-    'baby_bangles': '25812008941803035',
-    'women_face': '26648112538119124',
-    'women_hand': '25990285673976585',
-    'women_neck': '34124391790542901',
-    'women_lower': '25970100975978085',
-    'men_rings': '35279590828306838',
-    'men_bracelets': '26028399416826135',
-    'men_chains': '26614026711549117',
-    'men_accessories': '25956694700651645'
-}
-
-# Open Catalog
-def open_catalog(to, collection_id):
-    catalog_url = f"https://wa.me/c/{WHATSAPP_PHONE_ID}/{collection_id}"
-    send_text(to, f"Opening catalog...\n\n{catalog_url}")
 
 # Webhook Verification
 @app.route('/webhook', methods=['GET'])
@@ -289,9 +280,11 @@ def webhook():
                     else:
                         send_text(from_num, "This category is coming soon.")
                 
-                # Sub-category selected - Open catalog
-                elif list_id in CATALOG_IDS:
-                    open_catalog(from_num, CATALOG_IDS[list_id])
+                # Sub-category selected - Open WhatsApp Catalog (FIXED)
+                else:
+                    send_text(from_num, "Opening catalog...")
+                    time.sleep(0.5)
+                    send_catalog(from_num, "Browse our collection")
         
         return jsonify({'status': 'ok'}), 200
         
@@ -303,7 +296,7 @@ def webhook():
 @app.route('/', methods=['GET'])
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'healthy', 'service': 'A Jewel Studio WhatsApp Bot', 'features': 'Menu System Only'}), 200
+    return jsonify({'status': 'healthy', 'service': 'A Jewel Studio WhatsApp Bot'}), 200
 
 # Security
 @app.after_request
