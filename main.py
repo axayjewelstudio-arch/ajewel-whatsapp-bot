@@ -1415,6 +1415,43 @@ def detect_keyword(message_text):
         return 'product_search'
     
     return None
+
+# ═══════════════════════════════════════════════════════════
+# ROUTES
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/', methods=['GET'])
+def home():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "running",
+        "app": "A Jewel Studio WhatsApp Bot v4",
+        "version": "4.0.0",
+        "features": [
+            "AI Support (Gemini Pro)",
+            "Image Recognition (Gemini Vision)",
+            "Smart Product Search",
+            "Multi-level Catalog Navigation",
+            "82 Collections | 164 Products",
+            "Order Tracking",
+            "Referral System",
+            "Session Management"
+        ],
+        "endpoints": {
+            "health": "/",
+            "webhook": "/webhook"
+        }
+    }), 200
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Alternative health check"""
+    return jsonify({"status": "ok", "service": "whatsapp-bot"}), 200
+
+@app.route('/webhook', methods=['GET', 'POST'])
+def webhook():
+    # ... existing webhook code ...
+
 # ═══════════════════════════════════════════════════════════
 # UPDATED WEBHOOK HANDLER - WITH IMAGE & SEARCH
 # ═══════════════════════════════════════════════════════════
