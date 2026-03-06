@@ -16,383 +16,374 @@ from google.oauth2.service_account import Credentials
 import google.generativeai as genai
 from PIL import Image
 import io
-    
-    load_dotenv()
-    app = Flask(__name__)
-    CORS(app)
-    
-    # ── Environment Variables ──
-    WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
-    WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID')
-    VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
-    GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
-    SHOPIFY_STORE = os.getenv('SHOPIFY_STORE', 'a-jewel-studio-3.myshopify.com')
-    SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
-    BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'https://ajewelbot-v2-backend.onrender.com')
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyAI_7J57EpfoQoBlCVJtVHdpj_YR4x6GTY')
-    
-    # ── Configure Gemini AI ──
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-pro')
-    gemini_vision_model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    # ── Constants ──
-    SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
-    JOIN_US_URL = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
-    LOGO_IMAGE_URL = "https://cdn.shopify.com/s/files/1/0815/3248/5868/files/Welcome_Photo.jpg?v=1772108644"
-    CUSTOMER_CARE_NUMBER = "7600056655"
-    SESSION_TIMEOUT = 1800
-    
-    user_sessions = {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # GEMINI AI SUPPORT
-    # ═══════════════════════════════════════════════════════════
-    
-    def get_ai_response(customer_message, customer_name='Customer', customer_type='Retail'):
-        """Get professional AI response using Gemini"""
-        try:
-            system_prompt = f"""You are a professional customer service representative for A Jewel Studio, a premium jewellery brand.
-    
-    IMPORTANT GUIDELINES:
-    - You are an employee of A Jewel Studio
-    - Always be professional, polite, and helpful
-    - Keep responses concise (2-3 sentences max)
-    - Use proper grammar and punctuation
-    - Address customer as "{customer_name}"
-    - Customer type: {customer_type}
-    - Brand name: "A Jewel Studio" (with spaces)
-    
-    WHAT YOU CAN HELP WITH:
-    - General jewellery questions
-    - Product information
-    - Store policies
-    - Business hours (Mon-Sat: 10 AM - 7 PM, Sunday: Closed)
-    - Shipping and delivery
-    - Custom jewellery design
-    - Gift recommendations
-    
-    WHAT YOU CANNOT DO:
-    - Process orders (direct to WhatsApp catalog)
-    - Check order status (ask customer to type "Track #OrderID")
-    - Book appointments (direct to appointment flow)
-    - Access customer data
-    - Make promises about pricing or discounts
-    
-    If customer asks about orders, appointments, or catalog, politely direct them to use the menu buttons.
-    
-    Customer message: {customer_message}
-    
-    Respond professionally as an A Jewel Studio employee:"""
-    
-            response = gemini_model.generate_content(system_prompt)
-            ai_reply = response.text.strip()
-            
-            if not any(word in ai_reply.lower() for word in ['regards', 'help', 'assist']):
-                ai_reply += "\n\nHow else may I assist you today?"
-            
-            return ai_reply
+
+load_dotenv()
+app = Flask(__name__)
+CORS(app)
+
+# ── Environment Variables ──
+WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
+WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID')
+VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
+GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
+SHOPIFY_STORE = os.getenv('SHOPIFY_STORE', 'a-jewel-studio-3.myshopify.com')
+SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
+BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'https://ajewelbot-v2-backend.onrender.com')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyAI_7J57EpfoQoBlCVJtVHdpj_YR4x6GTY')
+
+# ── Configure Gemini AI ──
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel('gemini-pro')
+gemini_vision_model = genai.GenerativeModel('gemini-1.5-flash')
+
+# ── Constants ──
+SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
+JOIN_US_URL = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
+LOGO_IMAGE_URL = "https://cdn.shopify.com/s/files/1/0815/3248/5868/files/Welcome_Photo.jpg?v=1772108644"
+CUSTOMER_CARE_NUMBER = "7600056655"
+SESSION_TIMEOUT = 1800
+
+user_sessions = {}
+
+# ═══════════════════════════════════════════════════════════
+# GEMINI AI SUPPORT
+# ═══════════════════════════════════════════════════════════
+
+def get_ai_response(customer_message, customer_name='Customer', customer_type='Retail'):
+    """Get professional AI response using Gemini"""
+    try:
+        system_prompt = f"""You are a professional customer service representative for A Jewel Studio, a premium jewellery brand.
+
+IMPORTANT GUIDELINES:
+- You are an employee of A Jewel Studio
+- Always be professional, polite, and helpful
+- Keep responses concise (2-3 sentences max)
+- Use proper grammar and punctuation
+- Address customer as "{customer_name}"
+- Customer type: {customer_type}
+- Brand name: "A Jewel Studio" (with spaces)
+
+WHAT YOU CAN HELP WITH:
+- General jewellery questions
+- Product information
+- Store policies
+- Business hours (Mon-Sat: 10 AM - 7 PM, Sunday: Closed)
+- Shipping and delivery
+- Custom jewellery design
+- Gift recommendations
+
+WHAT YOU CANNOT DO:
+- Process orders (direct to WhatsApp catalog)
+- Check order status (ask customer to type "Track #OrderID")
+- Book appointments (direct to appointment flow)
+- Access customer data
+- Make promises about pricing or discounts
+
+If customer asks about orders, appointments, or catalog, politely direct them to use the menu buttons.
+
+Customer message: {customer_message}
+
+Respond professionally as an A Jewel Studio employee:"""
+
+        response = gemini_model.generate_content(system_prompt)
+        ai_reply = response.text.strip()
         
-        except Exception as e:
-            print(f"Gemini AI Error: {e}")
-            return "Thank you for your message. For immediate assistance, please select an option from the menu or contact our team at +91 7600056655."
-    
-    # ═══════════════════════════════════════════════════════════
-    # IMAGE RECOGNITION - GEMINI VISION
-    # ═══════════════════════════════════════════════════════════
-    
-    def analyze_jewelry_image(image_url):
-        """Analyze jewelry image using Gemini Vision"""
-        try:
-            response = requests.get(image_url, headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"})
-            
-            if response.status_code != 200:
-                return None
-            
-            image_data = response.content
-            img = Image.open(io.BytesIO(image_data))
-            
-            prompt = """Analyze this jewelry image and identify:
-    1. Type of jewelry (earring, ring, necklace, bracelet, etc.)
-    2. Style (traditional, modern, bridal, casual)
-    3. Key features (design elements, stones, patterns)
-    4. Suitable category
-    
-    Respond in this format:
-    Type: [jewelry type]
-    Style: [style]
-    Category: [baby/women/men]
-    Subcategory: [specific type like jhumka, studs, bangles, etc.]"""
-    
-            response = gemini_vision_model.generate_content([prompt, img])
-            analysis = response.text.strip()
-            
-            print(f"Image Analysis: {analysis}")
-            return analysis
+        if not any(word in ai_reply.lower() for word in ['regards', 'help', 'assist']):
+            ai_reply += "\n\nHow else may I assist you today?"
         
-        except Exception as e:
-            print(f"Image analysis error: {e}")
-            return None
+        return ai_reply
     
-    def find_similar_collection(analysis_text):
-        """Find matching collection based on image analysis"""
-        if not analysis_text:
+    except Exception as e:
+        print(f"Gemini AI Error: {e}")
+        return "Thank you for your message. For immediate assistance, please select an option from the menu or contact our team at +91 7600056655."
+
+# ═══════════════════════════════════════════════════════════
+# IMAGE RECOGNITION - GEMINI VISION
+# ═══════════════════════════════════════════════════════════
+
+def analyze_jewelry_image(image_url):
+    """Analyze jewelry image using Gemini Vision"""
+    try:
+        response = requests.get(image_url, headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"})
+        
+        if response.status_code != 200:
             return None
         
-        analysis_lower = analysis_text.lower()
+        image_data = response.content
+        img = Image.open(io.BytesIO(image_data))
         
-        # Baby jewelry
-        if 'baby' in analysis_lower or 'kid' in analysis_lower or 'child' in analysis_lower:
-            if 'earring' in analysis_lower:
-                return 'baby_earrings'
-            elif 'bangle' in analysis_lower or 'kada' in analysis_lower:
-                return 'baby_bangles'
-            elif 'chain' in analysis_lower or 'necklace' in analysis_lower:
-                return 'baby_chain'
-            elif 'ring' in analysis_lower:
-                return 'baby_rings'
-            elif 'anklet' in analysis_lower or 'payal' in analysis_lower:
-                return 'baby_payal'
-            elif 'hair' in analysis_lower:
-                return 'baby_hair'
+        prompt = """Analyze this jewelry image and identify:
+1. Type of jewelry (earring, ring, necklace, bracelet, etc.)
+2. Style (traditional, modern, bridal, casual)
+3. Key features (design elements, stones, patterns)
+4. Suitable category
+
+Respond in this format:
+Type: [jewelry type]
+Style: [style]
+Category: [baby/women/men]
+Subcategory: [specific type like jhumka, studs, bangles, etc.]"""
+
+        response = gemini_vision_model.generate_content([prompt, img])
+        analysis = response.text.strip()
         
-        # Women face jewelry
-        if 'women' in analysis_lower or 'female' in analysis_lower or 'bridal' in analysis_lower:
-            if 'jhumka' in analysis_lower:
-                return 'face_jhumka'
-            elif 'stud' in analysis_lower:
-                return 'face_studs'
-            elif 'chandbali' in analysis_lower:
-                return 'face_chandbali'
-            elif 'hoop' in analysis_lower:
-                return 'face_hoops'
-            elif 'bahubali' in analysis_lower:
-                return 'face_bahubali'
-            elif 'nath' in analysis_lower:
-                return 'face_nath'
-            elif 'nose' in analysis_lower:
-                return 'face_nose_pin'
-            elif 'maang tikka' in analysis_lower:
-                return 'face_maang_tikka'
-            elif 'earring' in analysis_lower:
-                return 'face_studs'
-            
-            # Women hand jewelry
-            elif 'bangle' in analysis_lower:
-                return 'hand_bangles'
-            elif 'kada' in analysis_lower:
-                return 'hand_kada'
-            elif 'bracelet' in analysis_lower:
-                return 'hand_bracelet'
-            elif 'ring' in analysis_lower:
-                if 'engagement' in analysis_lower:
-                    return 'hand_rings_engagement'
-                elif 'wedding' in analysis_lower:
-                    return 'hand_rings_wedding'
-                else:
-                    return 'hand_rings'
-            
-            # Women neck jewelry
-            elif 'necklace' in analysis_lower or 'haar' in analysis_lower:
-                return 'neck_haar'
-            elif 'choker' in analysis_lower:
-                return 'neck_choker'
-            elif 'pendant' in analysis_lower:
-                return 'neck_solitaire'
-            
-            # Women lower body
-            elif 'anklet' in analysis_lower or 'payal' in analysis_lower:
-                return 'lower_payal'
-        
-        # Men jewelry
-        if 'men' in analysis_lower or 'male' in analysis_lower or 'groom' in analysis_lower:
-            if 'ring' in analysis_lower:
-                if 'wedding' in analysis_lower:
-                    return 'men_rings_wedding'
-                else:
-                    return 'men_rings_fashion'
-            elif 'chain' in analysis_lower:
-                return 'men_chain_gold'
-            elif 'bracelet' in analysis_lower:
-                return 'men_bracelet_chain'
-            elif 'kada' in analysis_lower:
-                return 'men_kada_traditional'
-        
+        print(f"Image Analysis: {analysis}")
+        return analysis
+    
+    except Exception as e:
+        print(f"Image analysis error: {e}")
+        return None
+
+def find_similar_collection(analysis_text):
+    """Find matching collection based on image analysis"""
+    if not analysis_text:
         return None
     
-    def handle_image_upload(to_number, image_url, customer_name='Customer'):
-        """Handle customer image upload"""
-        send_whatsapp_text(to_number, f"Thank you, {customer_name}! 📸\n\nAnalyzing your image to find similar products...")
-        
-        analysis = analyze_jewelry_image(image_url)
-        
-        if analysis:
-            collection_key = find_similar_collection(analysis)
-            
-            if collection_key:
-                time.sleep(2)
-                send_whatsapp_text(to_number, "Great! I found similar products in our collection. Opening catalog...")
-                time.sleep(1)
-                send_catalog_link(to_number, collection_key)
+    analysis_lower = analysis_text.lower()
+    
+    if 'baby' in analysis_lower or 'kid' in analysis_lower or 'child' in analysis_lower:
+        if 'earring' in analysis_lower:
+            return 'baby_earrings'
+        elif 'bangle' in analysis_lower or 'kada' in analysis_lower:
+            return 'baby_bangles'
+        elif 'chain' in analysis_lower or 'necklace' in analysis_lower:
+            return 'baby_chain'
+        elif 'ring' in analysis_lower:
+            return 'baby_rings'
+        elif 'anklet' in analysis_lower or 'payal' in analysis_lower:
+            return 'baby_payal'
+        elif 'hair' in analysis_lower:
+            return 'baby_hair'
+    
+    if 'women' in analysis_lower or 'female' in analysis_lower or 'bridal' in analysis_lower:
+        if 'jhumka' in analysis_lower:
+            return 'face_jhumka'
+        elif 'stud' in analysis_lower:
+            return 'face_studs'
+        elif 'chandbali' in analysis_lower:
+            return 'face_chandbali'
+        elif 'hoop' in analysis_lower:
+            return 'face_hoops'
+        elif 'bahubali' in analysis_lower:
+            return 'face_bahubali'
+        elif 'nath' in analysis_lower:
+            return 'face_nath'
+        elif 'nose' in analysis_lower:
+            return 'face_nose_pin'
+        elif 'maang tikka' in analysis_lower:
+            return 'face_maang_tikka'
+        elif 'earring' in analysis_lower:
+            return 'face_studs'
+        elif 'bangle' in analysis_lower:
+            return 'hand_bangles'
+        elif 'kada' in analysis_lower:
+            return 'hand_kada'
+        elif 'bracelet' in analysis_lower:
+            return 'hand_bracelet'
+        elif 'ring' in analysis_lower:
+            if 'engagement' in analysis_lower:
+                return 'hand_rings_engagement'
+            elif 'wedding' in analysis_lower:
+                return 'hand_rings_wedding'
             else:
-                send_whatsapp_text(to_number, "I analyzed your image but couldn't find an exact match. Let me show you our main collections.")
-                time.sleep(1)
-                send_main_menu(to_number, customer_name)
+                return 'hand_rings'
+        elif 'necklace' in analysis_lower or 'haar' in analysis_lower:
+            return 'neck_haar'
+        elif 'choker' in analysis_lower:
+            return 'neck_choker'
+        elif 'pendant' in analysis_lower:
+            return 'neck_solitaire'
+        elif 'anklet' in analysis_lower or 'payal' in analysis_lower:
+            return 'lower_payal'
+    
+    if 'men' in analysis_lower or 'male' in analysis_lower or 'groom' in analysis_lower:
+        if 'ring' in analysis_lower:
+            if 'wedding' in analysis_lower:
+                return 'men_rings_wedding'
+            else:
+                return 'men_rings_fashion'
+        elif 'chain' in analysis_lower:
+            return 'men_chain_gold'
+        elif 'bracelet' in analysis_lower:
+            return 'men_bracelet_chain'
+        elif 'kada' in analysis_lower:
+            return 'men_kada_traditional'
+    
+    return None
+
+def handle_image_upload(to_number, image_url, customer_name='Customer'):
+    """Handle customer image upload"""
+    send_whatsapp_text(to_number, f"Thank you, {customer_name}! 📸\n\nAnalyzing your image to find similar products...")
+    
+    analysis = analyze_jewelry_image(image_url)
+    
+    if analysis:
+        collection_key = find_similar_collection(analysis)
+        
+        if collection_key:
+            time.sleep(2)
+            send_whatsapp_text(to_number, "Great! I found similar products in our collection. Opening catalog...")
+            time.sleep(1)
+            send_catalog_link(to_number, collection_key)
         else:
-            send_whatsapp_text(to_number, "I couldn't analyze the image properly. Please try uploading a clearer photo or browse our collections.")
+            send_whatsapp_text(to_number, "I analyzed your image but couldn't find an exact match. Let me show you our main collections.")
             time.sleep(1)
             send_main_menu(to_number, customer_name)
-    
-    # ═══════════════════════════════════════════════════════════
-    # GOOGLE SHEETS CONNECTION
-    # ═══════════════════════════════════════════════════════════
-    
-    def get_google_sheet():
-        try:
-            creds_dict = json.loads(GOOGLE_CREDENTIALS)
-            scopes = [
-                'https://www.googleapis.com/auth/spreadsheets',
-                'https://www.googleapis.com/auth/drive'
-            ]
-            creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-            client = gspread.authorize(creds)
-            return client.open_by_key(SHEET_ID).worksheet('Registrations')
-        except Exception as e:
-            print(f"Google Sheets Error: {e}")
-            return None
-    
-    # ═══════════════════════════════════════════════════════════
-    # SHOPIFY API FUNCTIONS
-    # ═══════════════════════════════════════════════════════════
-    
-    def get_shopify_customer(phone):
-        """Get customer from Shopify by phone number"""
-        try:
-            url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json"
-            headers = {
-                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-                'Content-Type': 'application/json'
-            }
-            params = {'query': f'phone:{phone}'}
-            
-            response = requests.get(url, headers=headers, params=params)
-            
-            if response.status_code == 200:
-                customers = response.json().get('customers', [])
-                return customers[0] if customers else None
-            return None
-        except Exception as e:
-            print(f"Shopify API Error: {e}")
-            return None
-    
-    def is_b2b_customer(customer):
-        """Check if customer is B2B based on tags"""
-        if not customer:
-            return False
-        tags = customer.get('tags', '').lower()
-        return 'b2b' in tags or 'wholesaler' in tags or 'wholesale' in tags
-    
-    # ═══════════════════════════════════════════════════════════
-    # CUSTOMER STATUS CHECK
-    # ═══════════════════════════════════════════════════════════
-    
-    def check_customer_status(phone_number):
-        """Check customer status"""
-        try:
-            sheet = get_google_sheet()
-            if not sheet:
-                return {'exists': False}
-            
-            all_data = sheet.get_all_values()
-            
-            for idx, row in enumerate(all_data[1:], start=2):
-                if len(row) > 0 and row[0] == phone_number:
-                    has_form_data = bool(row[1]) if len(row) > 1 else False
-                    customer_type_sheet = row[27] if len(row) > 27 else 'Retail'
-                    first_name = row[1] if len(row) > 1 else ''
-                    last_name = row[2] if len(row) > 2 else ''
-                    
-                    shopify_customer = get_shopify_customer(phone_number)
-                    
-                    if shopify_customer:
-                        customer_type = 'B2B' if is_b2b_customer(shopify_customer) else customer_type_sheet
-                    else:
-                        customer_type = customer_type_sheet
-                    
-                    return {
-                        'exists': True,
-                        'has_form_data': has_form_data,
-                        'customer_type': customer_type,
-                        'name': f"{first_name} {last_name}".strip() or 'Customer',
-                        'shopify_customer': shopify_customer,
-                        'row': idx
-                    }
-            
+    else:
+        send_whatsapp_text(to_number, "I couldn't analyze the image properly. Please try uploading a clearer photo or browse our collections.")
+        time.sleep(1)
+        send_main_menu(to_number, customer_name)
+
+# ═══════════════════════════════════════════════════════════
+# GOOGLE SHEETS CONNECTION
+# ═══════════════════════════════════════════════════════════
+
+def get_google_sheet():
+    try:
+        creds_dict = json.loads(GOOGLE_CREDENTIALS)
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        return client.open_by_key(SHEET_ID).worksheet('Registrations')
+    except Exception as e:
+        print(f"Google Sheets Error: {e}")
+        return None
+
+# ═══════════════════════════════════════════════════════════
+# SHOPIFY API FUNCTIONS
+# ═══════════════════════════════════════════════════════════
+
+def get_shopify_customer(phone):
+    """Get customer from Shopify by phone number"""
+    try:
+        url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json"
+        headers = {
+            'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+            'Content-Type': 'application/json'
+        }
+        params = {'query': f'phone:{phone}'}
+        
+        response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            customers = response.json().get('customers', [])
+            return customers[0] if customers else None
+        return None
+    except Exception as e:
+        print(f"Shopify API Error: {e}")
+        return None
+
+def is_b2b_customer(customer):
+    """Check if customer is B2B based on tags"""
+    if not customer:
+        return False
+    tags = customer.get('tags', '').lower()
+    return 'b2b' in tags or 'wholesaler' in tags or 'wholesale' in tags
+
+# ═══════════════════════════════════════════════════════════
+# CUSTOMER STATUS CHECK
+# ═══════════════════════════════════════════════════════════
+
+def check_customer_status(phone_number):
+    """Check customer status"""
+    try:
+        sheet = get_google_sheet()
+        if not sheet:
             return {'exists': False}
         
-        except Exception as e:
-            print(f"Sheet check error: {e}")
-            return {'exists': False}
+        all_data = sheet.get_all_values()
+        
+        for idx, row in enumerate(all_data[1:], start=2):
+            if len(row) > 0 and row[0] == phone_number:
+                has_form_data = bool(row[1]) if len(row) > 1 else False
+                customer_type_sheet = row[27] if len(row) > 27 else 'Retail'
+                first_name = row[1] if len(row) > 1 else ''
+                last_name = row[2] if len(row) > 2 else ''
+                
+                shopify_customer = get_shopify_customer(phone_number)
+                
+                if shopify_customer:
+                    customer_type = 'B2B' if is_b2b_customer(shopify_customer) else customer_type_sheet
+                else:
+                    customer_type = customer_type_sheet
+                
+                return {
+                    'exists': True,
+                    'has_form_data': has_form_data,
+                    'customer_type': customer_type,
+                    'name': f"{first_name} {last_name}".strip() or 'Customer',
+                    'shopify_customer': shopify_customer,
+                    'row': idx
+                }
+        
+        return {'exists': False}
     
-    def add_number_to_sheet(phone_number):
-        """Add new number to Column A only"""
-        try:
-            customer_status = check_customer_status(phone_number)
-            
-            if customer_status['exists']:
-                print(f"Number already exists: {phone_number}")
-                return False
-            
-            sheet = get_google_sheet()
-            if sheet:
-                sheet.append_row([phone_number])
-                print(f"New number added: {phone_number}")
-                return True
-        except Exception as e:
-            print(f"Sheet add error: {e}")
-        return False
-    
-    # ═══════════════════════════════════════════════════════════
-    # SESSION MANAGEMENT
-    # ═══════════════════════════════════════════════════════════
-    
-    def get_session(phone_number):
-        """Get or create session"""
-        if phone_number not in user_sessions:
+    except Exception as e:
+        print(f"Sheet check error: {e}")
+        return {'exists': False}
+
+def add_number_to_sheet(phone_number):
+    """Add new number to Column A only"""
+    try:
+        customer_status = check_customer_status(phone_number)
+        
+        if customer_status['exists']:
+            print(f"Number already exists: {phone_number}")
+            return False
+        
+        sheet = get_google_sheet()
+        if sheet:
+            sheet.append_row([phone_number])
+            print(f"New number added: {phone_number}")
+            return True
+    except Exception as e:
+        print(f"Sheet add error: {e}")
+    return False
+
+# ═══════════════════════════════════════════════════════════
+# SESSION MANAGEMENT
+# ═══════════════════════════════════════════════════════════
+
+def get_session(phone_number):
+    """Get or create session"""
+    if phone_number not in user_sessions:
+        user_sessions[phone_number] = {
+            'state': 'idle',
+            'data': {},
+            'created_at': datetime.now(),
+            'last_activity': datetime.now()
+        }
+    else:
+        last_activity = user_sessions[phone_number]['last_activity']
+        if (datetime.now() - last_activity).seconds > SESSION_TIMEOUT:
             user_sessions[phone_number] = {
                 'state': 'idle',
                 'data': {},
                 'created_at': datetime.now(),
                 'last_activity': datetime.now()
             }
-        else:
-            last_activity = user_sessions[phone_number]['last_activity']
-            if (datetime.now() - last_activity).seconds > SESSION_TIMEOUT:
-                user_sessions[phone_number] = {
-                    'state': 'idle',
-                    'data': {},
-                    'created_at': datetime.now(),
-                    'last_activity': datetime.now()
-                }
-        
-        user_sessions[phone_number]['last_activity'] = datetime.now()
-        return user_sessions[phone_number]
     
-    def update_session(phone_number, state=None, data=None):
-        """Update session"""
-        session = get_session(phone_number)
-        if state:
-            session['state'] = state
-        if data:
-            session['data'].update(data)
-        session['last_activity'] = datetime.now()
-    
-    def clear_session(phone_number):
-        """Clear session"""
-        if phone_number in user_sessions:
-            del user_sessions[phone_number]
+    user_sessions[phone_number]['last_activity'] = datetime.now()
+    return user_sessions[phone_number]
 
-    # ═══════════════════════════════════════════════════════════
+def update_session(phone_number, state=None, data=None):
+    """Update session"""
+    session = get_session(phone_number)
+    if state:
+        session['state'] = state
+    if data:
+        session['data'].update(data)
+    session['last_activity'] = datetime.now()
+
+def clear_session(phone_number):
+    """Clear session"""
+    if phone_number in user_sessions:
+        del user_sessions[phone_number]
+
+# ═══════════════════════════════════════════════════════════
 # WHATSAPP SEND FUNCTIONS
 # ═══════════════════════════════════════════════════════════
 
