@@ -1,4 +1,52 @@
 # ═══════════════════════════════════════════════════════════
+# A Jewel Studio - Professional WhatsApp Bot v4
+# Complete Flow Architecture with AI Support & Smart Search
+# ═══════════════════════════════════════════════════════════
+
+import os
+import json
+import time
+from datetime import datetime
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import requests
+from dotenv import load_dotenv
+import gspread
+from google.oauth2.service_account import Credentials
+import google.generativeai as genai
+
+# ── Load Environment ──
+load_dotenv()
+
+# ── Initialize Flask App ──
+app = Flask(__name__)
+CORS(app)
+
+# ── Environment Variables ──
+WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN')
+WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID')
+VERIFY_TOKEN = os.getenv('VERIFY_TOKEN')
+GOOGLE_CREDENTIALS = os.getenv('GOOGLE_CREDENTIALS')
+SHOPIFY_STORE = os.getenv('SHOPIFY_STORE', 'a-jewel-studio-3.myshopify.com')
+SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
+BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'https://ajewelbot-v2-backend.onrender.com')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyAI_7J57EpfoQoBlCVJtVHdpj_YR4x6GTY')
+
+# ── Configure Gemini AI ──
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel('gemini-pro')
+
+# ── Constants ──
+SHEET_ID = "1w-4Zi65AqsQZFJIr1GLrDrW9BJNez8Wtr-dTL8oBLbs"
+JOIN_US_URL = "https://a-jewel-studio-3.myshopify.com/pages/join-us"
+LOGO_IMAGE_URL = "https://cdn.shopify.com/s/files/1/0815/3248/5868/files/Welcome_Photo.jpg?v=1772108644"
+CUSTOMER_CARE_NUMBER = "7600056655"
+SESSION_TIMEOUT = 1800  # 30 minutes
+
+# ── Session Storage ──
+user_sessions = {}
+
+# ═══════════════════════════════════════════════════════════
 # WHATSAPP CATALOG IDs - PROFESSIONAL COLLECTIONS
 # ═══════════════════════════════════════════════════════════
 
