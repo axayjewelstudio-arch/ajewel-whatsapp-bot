@@ -1,5 +1,5 @@
     # ═══════════════════════════════════════════════════════════
-    # A Jewel Studio - Professional WhatsApp Bot v4
+    # A Jewel Studio - Professional WhatsApp Bot
     # Complete Flow with AI, Image Recognition & Smart Search
     # ═══════════════════════════════════════════════════════════
     
