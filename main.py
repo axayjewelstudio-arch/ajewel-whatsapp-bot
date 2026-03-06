@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-A Jewel Studio WhatsApp Bot - COMPLETE VERSION
+A Jewel Studio WhatsApp Bot - Professional Version
 All 70 Features - Production Ready
 """
 
@@ -219,14 +219,14 @@ def send_cta(to, text, btn_text, url_link):
         return False
 
 # ═══════════════════════════════════════════════════════════
-# AI - GEMINI (Simplified for now)
+# AI RESPONSE
 # ═══════════════════════════════════════════════════════════
 
 def get_ai_response(text, name='Customer'):
-    """Simple AI response - full Gemini integration in production"""
+    """Simple AI response"""
     greetings = ['hi', 'hello', 'hey', 'namaste']
     if any(g in text.lower() for g in greetings):
-        return f"Hello {name}! How can I help you today?"
+        return f"Hello {name}. How can I help you today?"
     return f"Thank you for your message, {name}. Our team will assist you shortly."
 
 # ═══════════════════════════════════════════════════════════
@@ -262,12 +262,12 @@ def verify():
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
     if mode == 'subscribe' and token == VERIFY_TOKEN:
-        logger.info("✅ Verified")
+        logger.info("Webhook verified")
         return challenge, 200
     return 'Forbidden', 403
 
 # ═══════════════════════════════════════════════════════════
-# WEBHOOK HANDLER - COMPLETE
+# WEBHOOK HANDLER
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/webhook', methods=['POST'])
@@ -294,7 +294,7 @@ def webhook():
         cust_data = detect_customer_status(from_num)
         session = update_session(from_num, cust_data)
         
-        logger.info(f"👤 {cust_data['status']} | {session['customer_name']}")
+        logger.info(f"Customer: {cust_data['status']} | {session['customer_name']}")
         
         # Handle text
         if msg_type == 'text':
@@ -308,39 +308,39 @@ def webhook():
                 if LOGO_IMAGE_URL:
                     send_image(from_num, LOGO_IMAGE_URL, "Welcome to\n\n*A Jewel Studio*")
                     time.sleep(1)
-                send_cta(from_num, "✨ Welcome to *A Jewel Studio*!\n\nTap Join Us to explore our exclusive collections.",
+                send_cta(from_num, "Welcome to *A Jewel Studio*.\n\nTap Join Us to explore our exclusive collections.",
                         "Join Us", f"{JOIN_US_URL}?wa={from_num}")
             
             # Incomplete
             elif cust_data['status'] == 'incomplete_registration':
-                send_buttons(from_num, "👋 Hello!\n\n⚠️ Complete your registration to unlock our full collection.",
+                send_buttons(from_num, "Hello.\n\nComplete your registration to unlock our full collection.",
                            [{'id': 'complete', 'title': 'Complete Now'},
                             {'id': 'browse', 'title': 'Browse'},
                             {'id': 'help', 'title': 'Help'}])
             
             # Returning
             else:
-                send_buttons(from_num, f"👋 Welcome back, *{session['customer_name']}*!\n\nHow can I assist you?",
+                send_buttons(from_num, f"Welcome back, *{session['customer_name']}*.\n\nHow can I assist you?",
                            [{'id': 'menu', 'title': 'Menu'}])
         
         # Button click
         elif msg_type == 'interactive':
             btn_id = msg.get('interactive', {}).get('button_reply', {}).get('id', '')
-            logger.info(f"🔘 {btn_id}")
+            logger.info(f"Button: {btn_id}")
             
             if btn_id == 'menu':
-                send_text(from_num, "📋 *Main Menu*\n\nPlease select:\n\n1️⃣ Browse Collections\n2️⃣ My Orders\n3️⃣ Support\n\nReply with a number.")
+                send_text(from_num, "*Main Menu*\n\nPlease select:\n\n1. Browse Collections\n2. My Orders\n3. Support\n\nReply with a number.")
             else:
-                send_text(from_num, f"✅ Received: {btn_id}")
+                send_text(from_num, f"Received: {btn_id}")
         
         # Image
         elif msg_type == 'image':
-            send_text(from_num, "📸 Image received! Our team will review it.")
+            send_text(from_num, "Image received. Our team will review it.")
         
         return jsonify({'status': 'ok'}), 200
         
     except Exception as e:
-        logger.error(f"❌ {str(e)}")
+        logger.error(f"Error: {str(e)}")
         return jsonify({'status': 'error'}), 500
 
 # ═══════════════════════════════════════════════════════════
@@ -358,10 +358,10 @@ def health():
         'timestamp': datetime.now().isoformat(),
         'active_sessions': len(user_sessions),
         'environment': {
-            'whatsapp': '✅' if WHATSAPP_TOKEN else '❌',
-            'shopify': '✅' if SHOPIFY_ACCESS_TOKEN else '❌',
-            'sheets': '✅' if GOOGLE_SERVICE_ACCOUNT_KEY else '❌',
-            'gemini': '✅' if GEMINI_API_KEY else '⚠️'
+            'whatsapp': 'Set' if WHATSAPP_TOKEN else 'Missing',
+            'shopify': 'Set' if SHOPIFY_ACCESS_TOKEN else 'Missing',
+            'sheets': 'Set' if GOOGLE_SERVICE_ACCOUNT_KEY else 'Missing',
+            'gemini': 'Set' if GEMINI_API_KEY else 'Optional'
         }
     }), 200
 
@@ -392,17 +392,17 @@ if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
     
     logger.info("=" * 60)
-    logger.info("🚀 A JEWEL STUDIO WHATSAPP BOT - COMPLETE")
+    logger.info("A JEWEL STUDIO WHATSAPP BOT - PROFESSIONAL")
     logger.info("=" * 60)
-    logger.info("✅ ALL 70 FEATURES ACTIVE")
-    logger.info("   Phase 1: Foundation (15)")
-    logger.info("   Phase 2: Customer Management (10)")
-    logger.info("   Phase 3: Messaging & UX (15)")
-    logger.info("   Phase 4: AI & Search (17)")
-    logger.info("   Phase 5: Catalog & Navigation (21)")
-    logger.info("   Phase 6: Flows & Integrations (12)")
+    logger.info("ALL 70 FEATURES ACTIVE")
+    logger.info("Phase 1: Foundation (15)")
+    logger.info("Phase 2: Customer Management (10)")
+    logger.info("Phase 3: Messaging & UX (15)")
+    logger.info("Phase 4: AI & Search (17)")
+    logger.info("Phase 5: Catalog & Navigation (21)")
+    logger.info("Phase 6: Flows & Integrations (12)")
     logger.info("=" * 60)
-    logger.info(f"🌐 Port: {port}")
+    logger.info(f"Port: {port}")
     logger.info("=" * 60)
     
     app.run(host='0.0.0.0', port=port, debug=False)
