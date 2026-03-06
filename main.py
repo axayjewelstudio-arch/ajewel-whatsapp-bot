@@ -1,6 +1,7 @@
 """
-A Jewel Studio - WhatsApp Bot
-Complete Production System with Aru AI Assistant
+A Jewel Studio - WhatsApp Bot with Aru AI Assistant
+Complete Production System
+82 Collections | Bilingual Support | AI-Powered
 """
 
 import os
@@ -18,18 +19,23 @@ import razorpay
 import google.generativeai as genai
 from rapidfuzz import fuzz, process
 
-# Flask App
+# ============================================================================
+# FLASK APP INITIALIZATION
+# ============================================================================
+
 app = Flask(__name__)
 CORS(app)
 
-# Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Environment Variables
+# ============================================================================
+# ENVIRONMENT VARIABLES
+# ============================================================================
+
 WHATSAPP_TOKEN = os.getenv('WHATSAPP_TOKEN', '')
 WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID', '')
 WHATSAPP_CATALOG_ID = os.getenv('WHATSAPP_CATALOG_ID', '')
@@ -46,10 +52,12 @@ RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
-# WhatsApp API
 WA_API = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_ID}/messages"
 
-# Gemini AI Setup
+# ============================================================================
+# GEMINI AI SETUP
+# ============================================================================
+
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     gemini_model = genai.GenerativeModel('gemini-pro')
@@ -58,10 +66,17 @@ else:
     gemini_model = None
     gemini_vision = None
 
-# Session Storage
+# ============================================================================
+# SESSION STORAGE
+# ============================================================================
+
 user_sessions = {}
 SESSION_TIMEOUT = timedelta(minutes=30)
-# Complete Catalog Structure
+
+# ============================================================================
+# COMPLETE CATALOG STRUCTURE - 82 COLLECTIONS
+# ============================================================================
+
 CATALOG = {
     'BABY_JEWELLERY': {
         'label_en': 'Baby Jewellery',
@@ -124,7 +139,7 @@ CATALOG = {
                         'label_en': 'Hair Accessories',
                         'label_hi': 'Hair Accessories',
                         'collections': {
-                            'hair_clips': {'name': 'Hair Clips', 'id': '25923141554014968'}
+                            'face_hair_clips': {'name': 'Hair Clips', 'id': '25923141554014968'}
                         }
                     }
                 }
@@ -294,47 +309,72 @@ CATALOG = {
     }
 }
 
-# Reverse lookup: Collection ID -> Name
+# Build reverse lookup map: Collection ID -> Name
 COLLECTION_ID_MAP = {}
-for cat_key, cat_data in CATALOG.items():
-    if 'collections' in cat_data:
-        for coll_key, coll_info in cat_data['collections'].items():
-            COLLECTION_ID_MAP[coll_info['id']] = coll_info['name']
-    if 'sub_categories' in cat_data:
-        for sub_key, sub_data in cat_data['sub_categories'].items():
-            if 'collections' in sub_data:
-                for coll_key, coll_info in sub_data['collections'].items():
-                    COLLECTION_ID_MAP[coll_info['id']] = coll_info['name']
-            if 'sub_menus' in sub_data:
-                for menu_key, menu_data in sub_data['sub_menus'].items():
-                    if 'collections' in menu_data:
-                        for coll_key, coll_info in menu_data['collections'].items():
-                            COLLECTION_ID_MAP[coll_info['id']] = coll_info['name']
+SEARCH_KEYWORDS = []
 
-# Search keywords for fuzzy matching
-SEARCH_KEYWORDS = list(COLLECTION_ID_MAP.values())
-# Google Sheets
+def build_collection_maps():
+    """Build collection ID map and search keywords"""
+    global COLLECTION_ID_MAP, SEARCH_KEYWORDS
+    
+    for cat_key, cat_data in CATALOG.items():
+        # Direct collections
+        if 'collections' in cat_data:
+            for coll_key, coll_info in cat_data['collections'].items():
+                COLLECTION_ID_MAP[coll_info['id']] = coll_info['name']
+                SEARCH_KEYWORDS.append(coll_info['name'])
+        
+        # Sub-categories
+        if 'sub_categories' in cat_data:
+            for sub_key, sub_data in cat_data['sub_categories'].items():
+                # Direct collections in sub-category
+                if 'collections' in sub_data:
+                    for coll_key, coll_info in sub_data['collections'].items():
+                        COLLECTION_ID_MAP[coll_info['id']] = coll_info['name']
+                        SEARCH_KEYWORDS.append(coll_info['name'])
+                
+                # Sub-menus
+                if 'sub_menus' in sub_data:
+                    for menu_key, menu_data in sub_data['sub_menus'].items():
+                        if 'collections' in menu_data:
+                            for coll_key, coll_info in menu_data['collections'].items():
+                                COLLECTION_ID_MAP[coll_info['id']] = coll_info['name']
+                                SEARCH_KEYWORDS.append(coll_info['name'])
+
+build_collection_maps()
+
+# ============================================================================
+# GOOGLE SHEETS FUNCTIONS
+# ============================================================================
+
 def get_sheets_client():
+    """Initialize Google Sheets client"""
     try:
         if not GOOGLE_SERVICE_ACCOUNT_KEY:
+            logger.warning("Google Sheets credentials not found")
             return None
+        
+        creds_dict = json.loads(GOOGLE_SERVICE_ACCOUNT_KEY)
         creds = Credentials.from_service_account_info(
-            json.loads(GOOGLE_SERVICE_ACCOUNT_KEY),
+            creds_dict,
             scopes=['https://www.googleapis.com/auth/spreadsheets']
         )
         return gspread.authorize(creds)
     except Exception as e:
-        logger.error(f"Sheets init error: {e}")
+        logger.error(f"Sheets client init error: {e}")
         return None
 
 sheets_client = get_sheets_client()
 
 def check_customer_in_sheets(phone):
+    """Check if customer exists in Google Sheets"""
     try:
         if not sheets_client or not GOOGLE_SHEET_ID:
             return {'exists': False}
+        
         sheet = sheets_client.open_by_key(GOOGLE_SHEET_ID).worksheet('Registrations')
         phones = sheet.col_values(1)
+        
         for i, p in enumerate(phones, 1):
             if p == phone:
                 row = sheet.row_values(i)
@@ -343,37 +383,46 @@ def check_customer_in_sheets(phone):
                     'first_name': row[1] if len(row) > 1 else '',
                     'last_name': row[2] if len(row) > 2 else ''
                 }
+        
         return {'exists': False}
     except Exception as e:
         logger.error(f"Sheets check error: {e}")
         return {'exists': False}
 
 def log_phone_to_sheets(phone):
+    """Log new phone number to Google Sheets"""
     try:
         if not sheets_client or not GOOGLE_SHEET_ID:
             return
+        
         sheet = sheets_client.open_by_key(GOOGLE_SHEET_ID).worksheet('Registrations')
         sheet.append_row([phone, '', '', datetime.now().isoformat()])
+        logger.info(f"Logged phone to sheets: {phone}")
     except Exception as e:
         logger.error(f"Sheets log error: {e}")
 
-# Shopify
+# ============================================================================
+# SHOPIFY FUNCTIONS
+# ============================================================================
+
 def check_customer_in_shopify(phone):
+    """Check if customer exists in Shopify"""
     try:
         if not SHOPIFY_ACCESS_TOKEN:
             return {'exists': False}
+        
         url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/customers/search.json"
-        r = requests.get(
-            url,
-            headers={'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN},
-            params={'query': f'phone:{phone}'},
-            timeout=10
-        )
+        headers = {'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN}
+        params = {'query': f'phone:{phone}'}
+        
+        r = requests.get(url, headers=headers, params=params, timeout=10)
+        
         if r.status_code == 200:
             customers = r.json().get('customers', [])
             if customers:
                 c = customers[0]
                 tags = [t.strip() for t in c.get('tags', '').split(',')]
+                
                 return {
                     'exists': True,
                     'first_name': c.get('first_name', ''),
@@ -381,6 +430,7 @@ def check_customer_in_shopify(phone):
                     'email': c.get('email', ''),
                     'customer_type': 'B2B' if any(t in ['B2B', 'Wholesale'] for t in tags) else 'Retail'
                 }
+        
         return {'exists': False}
     except Exception as e:
         logger.error(f"Shopify check error: {e}")
@@ -389,20 +439,32 @@ def check_customer_in_shopify(phone):
 def search_shopify_products(query):
     """Search Shopify products with fuzzy matching"""
     try:
+        if not query or not SEARCH_KEYWORDS:
+            return {'found': False}
+        
         # Fuzzy match against collection names
         match = process.extractOne(query, SEARCH_KEYWORDS, scorer=fuzz.token_sort_ratio)
+        
         if match and match[1] > 60:  # 60% similarity threshold
             collection_name = match[0]
+            
             # Find collection ID
             for coll_id, coll_name in COLLECTION_ID_MAP.items():
                 if coll_name == collection_name:
-                    return {'found': True, 'collection_id': coll_id, 'collection_name': coll_name}
+                    return {
+                        'found': True,
+                        'collection_id': coll_id,
+                        'collection_name': coll_name
+                    }
+        
         return {'found': False}
     except Exception as e:
         logger.error(f"Product search error: {e}")
         return {'found': False}
 
 def detect_customer_status(phone):
+    """Detect customer status: new, incomplete, returning_retail, returning_b2b"""
+    # Check Shopify first
     shopify = check_customer_in_shopify(phone)
     if shopify['exists']:
         ct = shopify.get('customer_type', 'Retail')
@@ -413,6 +475,8 @@ def detect_customer_status(phone):
             'last_name': shopify.get('last_name', ''),
             'email': shopify.get('email', '')
         }
+    
+    # Check Sheets
     sheets = check_customer_in_sheets(phone)
     if sheets['exists']:
         return {
@@ -420,32 +484,49 @@ def detect_customer_status(phone):
             'first_name': sheets.get('first_name', ''),
             'last_name': sheets.get('last_name', '')
         }
+    
+    # New customer - log to sheets
     log_phone_to_sheets(phone)
     return {'status': 'new'}
 
-# Razorpay
+# ============================================================================
+# RAZORPAY FUNCTIONS
+# ============================================================================
+
 def create_razorpay_link(amount_paise, customer_name, phone, order_ref):
+    """Create Razorpay payment link"""
     try:
         if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+            logger.warning("Razorpay credentials not found")
             return None
+        
         client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+        
         link = client.payment_link.create({
             'amount': amount_paise,
             'currency': 'INR',
             'accept_partial': False,
             'description': f'A Jewel Studio - Order {order_ref}',
-            'customer': {'name': customer_name, 'contact': f'+{phone}'},
+            'customer': {
+                'name': customer_name,
+                'contact': f'+{phone}'
+            },
             'notify': {'sms': False, 'email': False},
             'reminder_enable': False,
             'notes': {'order_ref': order_ref}
         })
+        
         return link.get('short_url')
     except Exception as e:
         logger.error(f"Razorpay error: {e}")
         return None
 
-# Session Management
+# ============================================================================
+# SESSION MANAGEMENT
+# ============================================================================
+
 def get_session(phone):
+    """Get or create user session"""
     if phone not in user_sessions:
         user_sessions[phone] = {
             'created_at': datetime.now(),
@@ -455,25 +536,36 @@ def get_session(phone):
             'cart_total': 0,
             'navigation_stack': []
         }
+    
     user_sessions[phone]['last_activity'] = datetime.now()
     return user_sessions[phone]
 
 def update_session(phone, cust_data):
-    s = get_session(phone)
+    """Update session with customer data"""
+    session = get_session(phone)
+    
     fn = cust_data.get('first_name', 'Customer')
     ln = cust_data.get('last_name', '')
-    s['customer_name'] = f"{fn} {ln}".strip() if ln else fn
-    return s
+    session['customer_name'] = f"{fn} {ln}".strip() if ln else fn
+    
+    return session
 
 def detect_language(text):
     """Detect Hindi/English from text"""
+    if not text:
+        return 'en'
+    
+    # Check for Devanagari script
     hindi_chars = re.findall(r'[\u0900-\u097F]', text)
     if len(hindi_chars) > len(text) * 0.3:
         return 'hi'
+    
     # Check for common Hindi/Hinglish words
-    hinglish_words = ['hai', 'hain', 'kya', 'aap', 'mujhe', 'chahiye', 'dikhao', 'batao']
-    if any(word in text.lower() for word in hinglish_words):
+    hinglish_words = ['hai', 'hain', 'kya', 'aap', 'mujhe', 'chahiye', 'dikhao', 'batao', 'kaise', 'kaha']
+    text_lower = text.lower()
+    if any(word in text_lower for word in hinglish_words):
         return 'hi'
+    
     return 'en'
 
 def cleanup_sessions():
@@ -482,7 +574,13 @@ def cleanup_sessions():
     expired = [p for p, s in user_sessions.items() if now - s['last_activity'] > SESSION_TIMEOUT]
     for p in expired:
         del user_sessions[p]
-# Aru - AI Assistant
+    if expired:
+        logger.info(f"Cleaned up {len(expired)} expired sessions")
+
+# ============================================================================
+# ARU - AI ASSISTANT
+# ============================================================================
+
 ARU_SYSTEM_PROMPT = """You are Aru, a professional jewelry consultant at A Jewel Studio.
 
 Your personality:
@@ -502,7 +600,7 @@ Communication style:
 - Luxury, friendly, professional tone
 - Never aggressive or pushy
 - Clear and confident
-- Concise but complete answers
+- Concise but complete answers (2-4 sentences max)
 - Use customer's name when known
 
 Important rules:
@@ -510,16 +608,18 @@ Important rules:
 - If you don't know something, gracefully suggest contacting the team
 - Always maintain professionalism
 - Focus on helping the customer find what they need
+- Keep responses short and actionable
 """
 
 def ask_aru(question, language='en', customer_name='Customer', context=''):
     """Get AI response from Aru"""
     try:
         if not gemini_model:
+            logger.warning("Gemini model not available")
             return None
         
         # Build prompt
-        lang_instruction = "Respond in English." if language == 'en' else "Respond in Hindi/Hinglish (Roman script)."
+        lang_instruction = "Respond in English." if language == 'en' else "Respond in Hindi/Hinglish using Roman script (not Devanagari)."
         
         full_prompt = f"""{ARU_SYSTEM_PROMPT}
 
@@ -530,7 +630,7 @@ Language: {lang_instruction}
 
 Customer question: {question}
 
-Provide a helpful, professional response as Aru."""
+Provide a helpful, professional response as Aru. Keep it concise (2-4 sentences)."""
 
         response = gemini_model.generate_content(full_prompt)
         return response.text.strip()
@@ -542,6 +642,7 @@ def analyze_image_with_aru(image_url, language='en'):
     """Analyze jewelry image with Gemini Vision"""
     try:
         if not gemini_vision:
+            logger.warning("Gemini Vision not available")
             return None
         
         # Download image
@@ -558,7 +659,11 @@ def analyze_image_with_aru(image_url, language='en'):
 
 Be specific and concise."""
         
-        response = gemini_vision.generate_content([prompt, {'mime_type': 'image/jpeg', 'data': img_response.content}])
+        response = gemini_vision.generate_content([
+            prompt,
+            {'mime_type': 'image/jpeg', 'data': img_response.content}
+        ])
+        
         analysis = response.text.strip()
         
         # Extract keywords for search
@@ -572,7 +677,7 @@ Be specific and concise."""
                 keywords.append(t)
         
         # Styles
-        styles = ['traditional', 'modern', 'bridal', 'ethnic', 'contemporary']
+        styles = ['traditional', 'modern', 'bridal', 'ethnic', 'contemporary', 'classic']
         for s in styles:
             if s in analysis_lower:
                 keywords.append(s)
@@ -585,8 +690,13 @@ Be specific and concise."""
     except Exception as e:
         logger.error(f"Image analysis error: {e}")
         return None
-# WhatsApp API Helper
+
+# ============================================================================
+# WHATSAPP API FUNCTIONS
+# ============================================================================
+
 def _wa_post(payload):
+    """Send request to WhatsApp API"""
     try:
         r = requests.post(
             WA_API,
@@ -597,15 +707,17 @@ def _wa_post(payload):
             json=payload,
             timeout=10
         )
+        
         if not r.ok:
-            logger.error(f"WA API {r.status_code}: {r.text[:300]}")
+            logger.error(f"WA API error {r.status_code}: {r.text[:300]}")
+        
         return r.ok
     except Exception as e:
         logger.error(f"WA post error: {e}")
         return False
 
-# Message Functions
 def send_text(to, text):
+    """Send text message"""
     return _wa_post({
         'messaging_product': 'whatsapp',
         'to': to,
@@ -614,6 +726,7 @@ def send_text(to, text):
     })
 
 def send_button(to, body_text, btn_id, btn_title):
+    """Send single button message"""
     return _wa_post({
         'messaging_product': 'whatsapp',
         'to': to,
@@ -622,7 +735,9 @@ def send_button(to, body_text, btn_id, btn_title):
             'type': 'button',
             'body': {'text': body_text},
             'action': {
-                'buttons': [{'type': 'reply', 'reply': {'id': btn_id, 'title': btn_title}}]
+                'buttons': [
+                    {'type': 'reply', 'reply': {'id': btn_id, 'title': btn_title}}
+                ]
             }
         }
     })
@@ -631,6 +746,7 @@ def send_buttons(to, body_text, buttons):
     """Send up to 3 buttons"""
     if len(buttons) > 3:
         buttons = buttons[:3]
+    
     return _wa_post({
         'messaging_product': 'whatsapp',
         'to': to,
@@ -639,12 +755,16 @@ def send_buttons(to, body_text, buttons):
             'type': 'button',
             'body': {'text': body_text},
             'action': {
-                'buttons': [{'type': 'reply', 'reply': {'id': b['id'], 'title': b['title']}} for b in buttons]
+                'buttons': [
+                    {'type': 'reply', 'reply': {'id': b['id'], 'title': b['title']}}
+                    for b in buttons
+                ]
             }
         }
     })
 
 def send_list(to, header, body, btn_text, sections):
+    """Send list message"""
     return _wa_post({
         'messaging_product': 'whatsapp',
         'to': to,
@@ -653,7 +773,10 @@ def send_list(to, header, body, btn_text, sections):
             'type': 'list',
             'header': {'type': 'text', 'text': header},
             'body': {'text': body},
-            'action': {'button': btn_text, 'sections': sections}
+            'action': {
+                'button': btn_text,
+                'sections': sections
+            }
         }
     })
 
@@ -662,11 +785,13 @@ def send_catalog_collection(to, collection_id, collection_name):
     try:
         # Fetch products from Meta Commerce API
         url = f"https://graph.facebook.com/v19.0/{collection_id}/products"
-        r = requests.get(url, params={
+        params = {
             'fields': 'retailer_id',
             'access_token': WHATSAPP_TOKEN,
             'limit': 30
-        }, timeout=10)
+        }
+        
+        r = requests.get(url, params=params, timeout=10)
         
         if r.ok:
             products = r.json().get('data', [])
@@ -687,21 +812,25 @@ def send_catalog_collection(to, collection_id, collection_name):
                             'catalog_id': WHATSAPP_CATALOG_ID,
                             'sections': [{
                                 'title': collection_name[:24],
-                                'product_items': [{'product_retailer_id': rid} for rid in retailer_ids[:30]]
+                                'product_items': [
+                                    {'product_retailer_id': rid} for rid in retailer_ids[:30]
+                                ]
                             }]
                         }
                     }
                 })
         
-        # Fallback: send text message
+        # Fallback: empty catalog message
         send_text(to, f"{collection_name}\n\nThis collection is currently being updated.\n\nHowever, we can help you with custom jewellery designs based on your preference.")
         return True
+    
     except Exception as e:
         logger.error(f"Catalog error: {e}")
         send_text(to, f"{collection_name}\n\nPlease contact our team for assistance.")
         return False
 
 def send_payment_link(to, customer_name, phone, total_paise, lang='en'):
+    """Send payment link"""
     order_ref = f"AJS-{phone[-4:]}-{int(datetime.now().timestamp())}"
     rp_url = create_razorpay_link(total_paise, customer_name, phone, order_ref)
     
@@ -720,7 +849,10 @@ def send_payment_link(to, customer_name, phone, total_paise, lang='en'):
                 'body': {'text': text},
                 'action': {
                     'name': 'cta_url',
-                    'parameters': {'display_text': 'PAY NOW', 'url': rp_url}
+                    'parameters': {
+                        'display_text': 'PAY NOW',
+                        'url': rp_url
+                    }
                 }
             }
         })
@@ -730,19 +862,23 @@ def send_payment_link(to, customer_name, phone, total_paise, lang='en'):
         else:
             send_text(to, "To complete your order please contact us. We will share the payment link shortly.")
         return False
-# Flow Message Functions
+
+# ============================================================================
+# FLOW MESSAGE FUNCTIONS
+# ============================================================================
+
 def send_new_customer_welcome(to, lang='en'):
     """Flow 1: New Customer"""
+    send_text(to, "Hello\nWelcome to A Jewel Studio.")
+    time.sleep(0.5)
+    
     if lang == 'hi':
-        send_text(to, "Hello\nWelcome to A Jewel Studio.")
-        time.sleep(0.5)
-        send_text(to, "I'm Aru, your Studio Assistant.\n\nJoin us to explore our exclusive jewellery collections and latest designs.")
+        send_text(to, "Main Aru, aapki Studio Assistant hoon.\n\nJoin us to explore our exclusive jewellery collections and latest designs.")
     else:
-        send_text(to, "Hello\nWelcome to A Jewel Studio.")
-        time.sleep(0.5)
         send_text(to, "I'm Aru, your Studio Assistant.\n\nJoin us to explore our exclusive jewellery collections and latest designs.")
     
     time.sleep(0.5)
+    
     join_url = f"https://{SHOPIFY_STORE}/pages/join-us?wa={to}"
     return _wa_post({
         'messaging_product': 'whatsapp',
@@ -753,7 +889,10 @@ def send_new_customer_welcome(to, lang='en'):
             'body': {'text': 'Register to access our full collection.'},
             'action': {
                 'name': 'cta_url',
-                'parameters': {'display_text': 'JOIN US', 'url': join_url}
+                'parameters': {
+                    'display_text': 'JOIN US',
+                    'url': join_url
+                }
             }
         }
     })
@@ -775,7 +914,10 @@ def send_incomplete_registration(to, lang='en'):
             'body': {'text': text},
             'action': {
                 'name': 'cta_url',
-                'parameters': {'display_text': 'COMPLETE REGISTRATION', 'url': join_url}
+                'parameters': {
+                    'display_text': 'COMPLETE REGISTRATION',
+                    'url': join_url
+                }
             }
         }
     })
@@ -836,13 +978,12 @@ def send_baby_collections(to, lang='en'):
     """Baby Jewellery collections"""
     collections = CATALOG['BABY_JEWELLERY']['collections']
     
-    sections = [{
-        'title': 'Baby Jewellery',
-        'rows': [
-            {'id': f"COLL_{coll_info['id']}", 'title': coll_info['name']}
-            for coll_key, coll_info in collections.items()
-        ]
-    }]
+    rows = [
+        {'id': f"COLL_{coll_info['id']}", 'title': coll_info['name']}
+        for coll_key, coll_info in collections.items()
+    ]
+    
+    sections = [{'title': 'Baby Jewellery', 'rows': rows}]
     
     return send_list(to, 'Baby Jewellery', 'Select a collection', 'SELECT', sections)
 
@@ -871,10 +1012,7 @@ def send_face_jewellery_menu(to, lang='en'):
         {'id': 'HEAD_JEWELLERY', 'title': 'HEAD JEWELLERY'}
     ]
     
-    if lang == 'hi':
-        text = "Please choose a style to explore"
-    else:
-        text = "Please choose a style to explore"
+    text = "Please choose a style to explore"
     
     send_buttons(to, text, buttons)
     time.sleep(0.5)
@@ -883,8 +1021,20 @@ def send_face_jewellery_menu(to, lang='en'):
 def send_collection_list(to, category_key, subcategory_key, menu_key, lang='en'):
     """Generic collection list sender"""
     try:
-        menu_data = CATALOG[category_key]['sub_categories'][subcategory_key]['sub_menus'][menu_key]
-        collections = menu_data['collections']
+        if menu_key:
+            # Has sub_menus (Women's jewelry)
+            menu_data = CATALOG[category_key]['sub_categories'][subcategory_key]['sub_menus'][menu_key]
+            collections = menu_data['collections']
+            label = menu_data['label_en']
+        else:
+            # Direct collections (Men's, Studio, Lower Body)
+            if subcategory_key:
+                sub_data = CATALOG[category_key]['sub_categories'][subcategory_key]
+                collections = sub_data['collections']
+                label = sub_data['label_en']
+            else:
+                collections = CATALOG[category_key]['collections']
+                label = CATALOG[category_key]['label_en']
         
         rows = [
             {'id': f"COLL_{coll_info['id']}", 'title': coll_info['name']}
@@ -895,11 +1045,12 @@ def send_collection_list(to, category_key, subcategory_key, menu_key, lang='en')
         sections = []
         for i in range(0, len(rows), 10):
             sections.append({
-                'title': menu_data['label_en'] if i == 0 else f"{menu_data['label_en']} (cont.)",
+                'title': label if i == 0 else f"{label} (cont.)",
                 'rows': rows[i:i+10]
             })
         
-        return send_list(to, menu_data['label_en'], 'Select a collection', 'SELECT', sections[:10])
+        return send_list(to, label, 'Select a collection', 'SELECT', sections[:10])
+    
     except Exception as e:
         logger.error(f"Collection list error: {e}")
         return send_text(to, "Sorry, there was an error. Please try again.")
@@ -921,8 +1072,13 @@ def send_payment_success(to, lang='en'):
         text = "Payment received successfully\n\nThank you for shopping with A Jewel Studio.\n\nYour order is now being processed.\n\nOur team will contact you shortly with the order details."
     
     return send_text(to, text)
-# Core Message Handler
+
+# ============================================================================
+# CORE MESSAGE HANDLER
+# ============================================================================
+
 def handle_message(phone, msg):
+    """Main message handler"""
     try:
         cleanup_sessions()
         
@@ -942,20 +1098,19 @@ def handle_message(phone, msg):
         # Handle text messages
         if msg_type == 'text':
             text = msg.get('text', {}).get('body', '').strip()
-            
-            # Check customer status
             status = cust_data['status']
             
+            # New customer
             if status == 'new':
                 send_new_customer_welcome(phone, lang)
                 return
             
+            # Incomplete registration
             elif status == 'incomplete_registration':
                 send_incomplete_registration(phone, lang)
                 return
             
-            # Returning customers - check if it's a search query
-            # Try product search first
+            # Returning customers - try product search
             search_result = search_shopify_products(text)
             if search_result['found']:
                 collection_id = search_result['collection_id']
@@ -993,7 +1148,7 @@ def handle_message(phone, msg):
                 btn_id = interactive.get('button_reply', {}).get('id', '')
                 
                 # Main menu
-                if btn_id == 'MENU' or btn_id == 'BROWSE_FILES':
+                if btn_id in ['MENU', 'BROWSE_FILES']:
                     send_main_menu(phone, lang)
                 
                 # B2B actions
@@ -1026,14 +1181,9 @@ def handle_message(phone, msg):
                     send_buttons(phone, "Please choose a category", buttons)
                 
                 elif btn_id == 'LOWER_BODY':
-                    collections = CATALOG['WOMEN_JEWELLERY']['sub_categories']['LOWER_BODY']['collections']
-                    rows = [
-                        {'id': f"COLL_{coll_info['id']}", 'title': coll_info['name']}
-                        for coll_key, coll_info in collections.items()
-                    ]
-                    send_list(phone, 'Lower Body Jewellery', 'Select a collection', 'SELECT', [{'title': 'Collections', 'rows': rows}])
+                    send_collection_list(phone, 'WOMEN_JEWELLERY', 'LOWER_BODY', None, lang)
                 
-                # Sub-menus
+                # Sub-menus - Women's
                 elif btn_id == 'EARRINGS':
                     send_collection_list(phone, 'WOMEN_JEWELLERY', 'FACE_JEWELLERY', 'EARRINGS', lang)
                 
@@ -1087,6 +1237,7 @@ def handle_message(phone, msg):
                 elif btn_id == 'STUDIO_ACCESSORIES':
                     send_collection_list(phone, 'STUDIO_EXCLUSIVES', 'ACCESSORIES', None, lang)
                 
+                # Custom design
                 elif btn_id == 'CUSTOM_DESIGN':
                     send_text(phone, "Please describe your custom design requirements or upload an image.")
             
@@ -1137,8 +1288,6 @@ def handle_message(phone, msg):
         
         # Handle image upload
         if msg_type == 'image':
-            image_id = msg.get('image', {}).get('id', '')
-            
             if lang == 'hi':
                 send_text(phone, "Image share karne ke liye dhanyavaad\n\nDesign analyze ho raha hai...")
             else:
@@ -1151,7 +1300,10 @@ def handle_message(phone, msg):
         # Handle order from catalog
         if msg_type == 'order':
             items = msg.get('order', {}).get('product_items', [])
-            total = sum(int(float(i.get('item_price', 0)) * 100) * i.get('quantity', 1) for i in items)
+            total = sum(
+                int(float(i.get('item_price', 0)) * 100) * i.get('quantity', 1)
+                for i in items
+            )
             session['cart_total'] = total
             
             send_payment_link(phone, cust_name, phone, total, lang)
@@ -1161,81 +1313,27 @@ def handle_message(phone, msg):
         logger.error(f"Handle message error: {e}")
         send_text(phone, "Sorry, there was an error. Please try again or contact our team.")
 
-# Helper for collection lists (Men's and Studio)
-def send_collection_list_simple(to, category_key, subcategory_key, lang='en'):
-    """Send collection list for categories without sub_menus"""
-    try:
-        if subcategory_key:
-            collections = CATALOG[category_key]['sub_categories'][subcategory_key]['collections']
-            label = CATALOG[category_key]['sub_categories'][subcategory_key]['label_en']
-        else:
-            collections = CATALOG[category_key]['collections']
-            label = CATALOG[category_key]['label_en']
-        
-        rows = [
-            {'id': f"COLL_{coll_info['id']}", 'title': coll_info['name']}
-            for coll_key, coll_info in collections.items()
-        ]
-        
-        # Split into sections of 10
-        sections = []
-        for i in range(0, len(rows), 10):
-            sections.append({
-                'title': label if i == 0 else f"{label} (cont.)",
-                'rows': rows[i:i+10]
-            })
-        
-        return send_list(to, label, 'Select a collection', 'SELECT', sections[:10])
-    except Exception as e:
-        logger.error(f"Collection list simple error: {e}")
-        return send_text(to, "Sorry, there was an error. Please try again.")
+# ============================================================================
+# WEBHOOK ROUTES
+# ============================================================================
 
-# Update send_collection_list to handle both cases
-def send_collection_list(to, category_key, subcategory_key, menu_key, lang='en'):
-    """Generic collection list sender"""
-    try:
-        if menu_key:
-            # Has sub_menus (Women's jewelry)
-            menu_data = CATALOG[category_key]['sub_categories'][subcategory_key]['sub_menus'][menu_key]
-            collections = menu_data['collections']
-            label = menu_data['label_en']
-        else:
-            # Direct collections (Men's, Studio)
-            return send_collection_list_simple(to, category_key, subcategory_key, lang)
-        
-        rows = [
-            {'id': f"COLL_{coll_info['id']}", 'title': coll_info['name']}
-            for coll_key, coll_info in collections.items()
-        ]
-        
-        # Split into sections of 10
-        sections = []
-        for i in range(0, len(rows), 10):
-            sections.append({
-                'title': label if i == 0 else f"{label} (cont.)",
-                'rows': rows[i:i+10]
-            })
-        
-        return send_list(to, label, 'Select a collection', 'SELECT', sections[:10])
-    except Exception as e:
-        logger.error(f"Collection list error: {e}")
-        return send_text(to, "Sorry, there was an error. Please try again.")
-
-# Webhook Routes
 @app.route('/webhook', methods=['GET'])
 def verify():
+    """Verify webhook"""
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
     
     if mode == 'subscribe' and token == VERIFY_TOKEN:
-        logger.info("Webhook verified")
+        logger.info("Webhook verified successfully")
         return challenge, 200
     
+    logger.warning("Webhook verification failed")
     return 'Forbidden', 403
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    """Handle incoming messages"""
     try:
         data = request.get_json(silent=True)
         
@@ -1263,16 +1361,19 @@ def webhook():
 @app.route('/', methods=['GET'])
 @app.route('/health', methods=['GET'])
 def health():
+    """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'service': 'A Jewel Studio WhatsApp Bot',
         'assistant': 'Aru',
         'collections': 82,
-        'active_sessions': len(user_sessions)
+        'active_sessions': len(user_sessions),
+        'timestamp': datetime.now().isoformat()
     }), 200
 
 @app.after_request
 def security_headers(response):
+    """Add security headers"""
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -1284,15 +1385,35 @@ def not_found(e):
 
 @app.errorhandler(500)
 def internal_error(e):
-    return jsonify({'error': 'Internal error'}), 500
+    logger.error(f"Internal error: {e}")
+    return jsonify({'error': 'Internal server error'}), 500
 
-# Main
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
-    logger.info("=" * 60)
+    
+    logger.info("=" * 70)
     logger.info("A JEWEL STUDIO WHATSAPP BOT - ARU AI ASSISTANT")
-    logger.info("=" * 60)
-    logger.info("82 Collections | Bilingual | AI-Powered")
+    logger.info("=" * 70)
+    logger.info(f"Service: WhatsApp Business API Integration")
+    logger.info(f"Assistant: Aru (Gemini Pro AI)")
+    logger.info(f"Collections: 82 Jewelry Collections")
+    logger.info(f"Languages: English + Hindi/Hinglish")
+    logger.info(f"Features: Bilingual | AI-Powered | Catalog Integration")
     logger.info(f"Port: {port}")
-    logger.info("=" * 60)
+    logger.info(f"Environment: Production")
+    logger.info("=" * 70)
+    logger.info(f"WhatsApp Phone ID: {WHATSAPP_PHONE_ID[:20]}...")
+    logger.info(f"Catalog ID: {WHATSAPP_CATALOG_ID[:20]}...")
+    logger.info(f"Shopify Store: {SHOPIFY_STORE}")
+    logger.info(f"Gemini AI: {'Enabled' if gemini_model else 'Disabled'}")
+    logger.info(f"Razorpay: {'Enabled' if RAZORPAY_KEY_ID else 'Disabled'}")
+    logger.info(f"Google Sheets: {'Enabled' if sheets_client else 'Disabled'}")
+    logger.info("=" * 70)
+    logger.info("Bot is ready to serve customers!")
+    logger.info("=" * 70)
+    
     app.run(host='0.0.0.0', port=port, debug=False)
