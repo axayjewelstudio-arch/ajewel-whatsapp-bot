@@ -476,43 +476,57 @@ def send_whatsapp_buttons(to_number, body_text, buttons):
         button_text = "\n".join([f"{i+1}. {btn['title']}" for i, btn in enumerate(buttons)])
         return send_whatsapp_text(to_number, f"{body_text}\n\n{button_text}")
 
-def send_whatsapp_cta_button(to_number, body_text, button_text, button_url):
-    """Send CTA URL button"""
+def send_whatsapp_list(to_number, body_text, button_text, sections):
+    """Send interactive list message (scroll menu)"""
     url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
     }
+    
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": to_number,
         "type": "interactive",
         "interactive": {
-            "type": "cta_url",
-            "body": {"text": body_text[:1024]},
+            "type": "list",
+            "body": {
+                "text": body_text[:1024]
+            },
             "action": {
-                "name": "cta_url",
-                "parameters": {
-                    "display_text": button_text[:20],
-                    "url": button_url
-                }
+                "button": button_text[:20],
+                "sections": sections
             }
         }
     }
+    
     try:
         r = requests.post(url, json=payload, headers=headers)
-        if r.status_code == 200:
-            print(f"CTA button sent to {to_number}")
-            return r.json()
-        else:
-            print(f"CTA button failed: {r.text}")
-            fallback = f"{body_text}\n\n{button_text}: {button_url}"
-            return send_whatsapp_text(to_number, fallback)
+        print(f"List sent to {to_number}: {r.status_code}")
+        if r.status_code != 200:
+            print(f"List error: {r.text}")
+            # Fallback to buttons
+            buttons = []
+            for section in sections[:1]:
+                for row in section.get('rows', [])[:3]:
+                    buttons.append({
+                        "id": row.get('id'),
+                        "title": row.get('title')
+                    })
+            return send_whatsapp_buttons(to_number, body_text, buttons)
+        return r.json()
     except Exception as e:
-        print(f"WhatsApp CTA error: {e}")
-        fallback = f"{body_text}\n\n{button_text}: {button_url}"
-        return send_whatsapp_text(to_number, fallback)
+        print(f"WhatsApp list error: {e}")
+        # Fallback to buttons
+        buttons = []
+        for section in sections[:1]:
+            for row in section.get('rows', [])[:3]:
+                buttons.append({
+                    "id": row.get('id'),
+                    "title": row.get('title')
+                })
+        return send_whatsapp_buttons(to_number, body_text, buttons)
 
 # ═══════════════════════════════════════════════════════════
 # CUSTOMER FLOW MESSAGES
@@ -731,9 +745,12 @@ def send_catalog_link(to_number, collection_key):
     
     collection_id = collection['id']
     collection_name = collection['name']
-    catalog_url = f"https://wa.me/c/{WHATSAPP_PHONE_ID}/{collection_id}"
+    
+    # CORRECT WhatsApp catalog URL - Direct collection link
+    catalog_url = f"https://wa.me/c/{collection_id}"
     
     message = f"✨ *{collection_name}*\n\nExplore our exquisite collection. Tap the button below to view products in WhatsApp catalog."
+    
     send_whatsapp_cta_button(to_number, message, "View Collection", catalog_url)
 
 # ═══════════════════════════════════════════════════════════
@@ -741,41 +758,23 @@ def send_catalog_link(to_number, collection_key):
 # ═══════════════════════════════════════════════════════════
 
 def send_main_menu(to_number, customer_name='Customer'):
-    """Send main category menu"""
+    """Send main category menu - WITH SCROLL LIST"""
     message = f"Welcome to *A Jewel Studio*, {customer_name}.\n\nPlease select a category to explore our collections:"
     
-    buttons = [
-        {"id": "cat_baby", "title": "Baby Jewellery"},
-        {"id": "cat_women", "title": "Women Jewellery"},
-        {"id": "cat_men", "title": "Men Jewellery"}
+    sections = [
+        {
+            "title": "Main Collections",
+            "rows": [
+                {"id": "cat_baby", "title": "Baby Jewellery", "description": "Little Treasures Collection"},
+                {"id": "cat_women", "title": "Women Jewellery", "description": "Eternal Elegance Collection"},
+                {"id": "cat_men", "title": "Men Jewellery", "description": "Bold Heritage Collection"},
+                {"id": "cat_studio", "title": "Signature Collection", "description": "Watches & Accessories"},
+                {"id": "cat_divine", "title": "Divine Blessings", "description": "Sacred Idols & Figurines"}
+            ]
+        }
     ]
-    send_whatsapp_buttons(to_number, message, buttons)
     
-    time.sleep(1)
-    buttons2 = [
-        {"id": "cat_studio", "title": "Signature Collection"},
-        {"id": "cat_divine", "title": "Divine Blessings"}
-    ]
-    send_whatsapp_buttons(to_number, "Or explore our exclusive collections:", buttons2)
-
-def send_baby_collections(to_number):
-    """Show baby jewellery collections"""
-    message = "*Little Treasures Collection*\n\nSelect a category to view our baby jewellery:"
-    
-    buttons = [
-        {"id": "baby_hair", "title": "Hair Accessories"},
-        {"id": "baby_earrings", "title": "Earrings"},
-        {"id": "baby_chain", "title": "Necklace Chains"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "baby_rings", "title": "Rings"},
-        {"id": "baby_payal", "title": "Anklets (Payal)"},
-        {"id": "baby_bangles", "title": "Bangles & Kada"}
-    ]
-    send_whatsapp_buttons(to_number, "More baby jewellery:", buttons2)
+    send_whatsapp_list(to_number, message, "Browse Collections", sections)
 
 # ═══════════════════════════════════════════════════════════
 # WOMEN JEWELLERY MENUS
@@ -800,206 +799,48 @@ def send_women_body_parts(to_number):
     send_whatsapp_buttons(to_number, "More options:", buttons2)
 
 def send_women_face_collections(to_number):
-    """Show women face jewellery"""
-    message = "*Face Jewellery - Earrings:*"
+    """Show women face jewellery - WITH SCROLL LIST"""
+    message = "*Face Jewellery*\n\nSelect earrings or other face jewellery:"
     
-    buttons = [
-        {"id": "face_studs", "title": "Diamond Studs"},
-        {"id": "face_jhumka", "title": "Traditional Jhumka"},
-        {"id": "face_chandbali", "title": "Chandbali"}
+    sections = [
+        {
+            "title": "Earrings",
+            "rows": [
+                {"id": "face_studs", "title": "Diamond Studs", "description": "Classic diamond studs"},
+                {"id": "face_jhumka", "title": "Traditional Jhumka", "description": "Ethnic jhumka earrings"},
+                {"id": "face_chandbali", "title": "Chandbali", "description": "Crescent moon earrings"},
+                {"id": "face_hoops", "title": "Classic Hoops", "description": "Timeless hoop earrings"},
+                {"id": "face_bahubali", "title": "Bahubali", "description": "Statement bahubali earrings"},
+                {"id": "face_drop", "title": "Drop Earrings", "description": "Elegant drop earrings"},
+                {"id": "face_cuff", "title": "Ear Cuffs", "description": "Modern ear cuffs"},
+                {"id": "face_sui_dhaga", "title": "Sui Dhaga", "description": "Traditional sui dhaga"},
+                {"id": "face_kanser", "title": "Bridal Kanser", "description": "Bridal kanser earrings"},
+                {"id": "face_chuk", "title": "Vintage Chuk", "description": "Vintage chuk earrings"}
+            ]
+        },
+        {
+            "title": "Nose Jewellery",
+            "rows": [
+                {"id": "face_nath", "title": "Bridal Nath", "description": "Traditional bridal nath"},
+                {"id": "face_nose_pin", "title": "Diamond Nose Pins", "description": "Elegant nose pins"},
+                {"id": "face_septum", "title": "Septum Rings", "description": "Modern septum rings"},
+                {"id": "face_clip_on", "title": "Clip-On", "description": "No pierce clip-on"}
+            ]
+        },
+        {
+            "title": "Head Jewellery",
+            "rows": [
+                {"id": "face_maang_tikka", "title": "Maang Tikka", "description": "Traditional maang tikka"},
+                {"id": "face_matha_patti", "title": "Matha Patti", "description": "Royal matha patti"},
+                {"id": "face_passa", "title": "Side Passa", "description": "Bridal side passa"},
+                {"id": "face_head_kanser", "title": "Head Kanser", "description": "Temple head kanser"},
+                {"id": "face_sheesh_phool", "title": "Sheesh Phool", "description": "Bridal sheesh phool"}
+            ]
+        }
     ]
-    send_whatsapp_buttons(to_number, message, buttons)
     
-    time.sleep(1)
-    buttons2 = [
-        {"id": "face_hoops", "title": "Classic Hoops"},
-        {"id": "face_bahubali", "title": "Bahubali"},
-        {"id": "women_face_more", "title": "More Earrings →"}
-    ]
-    send_whatsapp_buttons(to_number, "More earrings:", buttons2)
-    
-    time.sleep(1)
-    buttons3 = [
-        {"id": "women_face_nose", "title": "Nose Jewellery"},
-        {"id": "women_face_head", "title": "Head Jewellery"},
-        {"id": "women_body", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "Other face jewellery:", buttons3)
+    send_whatsapp_list(to_number, message, "Select Jewellery", sections)
 
-def send_women_face_more_earrings(to_number):
-    """More earring options"""
-    message = "*More Earrings:*"
-    
-    buttons = [
-        {"id": "face_drop", "title": "Drop Earrings"},
-        {"id": "face_cuff", "title": "Ear Cuffs"},
-        {"id": "face_sui_dhaga", "title": "Sui Dhaga"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "face_kanser", "title": "Bridal Kanser"},
-        {"id": "face_chuk", "title": "Vintage Chuk"},
-        {"id": "women_face", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_face_nose(to_number):
-    """Nose jewellery sub-menu"""
-    message = "*Nose Jewellery:*"
-    
-    buttons = [
-        {"id": "face_nath", "title": "Bridal Nath"},
-        {"id": "face_nose_pin", "title": "Diamond Nose Pins"},
-        {"id": "face_septum", "title": "Septum Rings"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "face_clip_on", "title": "Clip-On (No Pierce)"},
-        {"id": "women_face", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_face_head(to_number):
-    """Head jewellery sub-menu"""
-    message = "*Head Jewellery:*"
-    
-    buttons = [
-        {"id": "face_maang_tikka", "title": "Maang Tikka"},
-        {"id": "face_matha_patti", "title": "Matha Patti"},
-        {"id": "face_passa", "title": "Side Passa"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "face_head_kanser", "title": "Head Kanser"},
-        {"id": "face_sheesh_phool", "title": "Sheesh Phool"},
-        {"id": "women_face", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_hand_collections(to_number):
-    """Show women hand jewellery"""
-    message = "*Hand Jewellery:*"
-    
-    buttons = [
-        {"id": "hand_bangles", "title": "Bangles"},
-        {"id": "hand_kada", "title": "Designer Kada"},
-        {"id": "hand_bracelet", "title": "Bracelets"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "women_hand_rings", "title": "Rings"},
-        {"id": "women_hand_more", "title": "More Options →"},
-        {"id": "women_body", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_hand_rings(to_number):
-    """Women rings sub-menu"""
-    message = "*Rings:*"
-    
-    buttons = [
-        {"id": "hand_rings_engagement", "title": "Engagement Rings"},
-        {"id": "hand_rings_wedding", "title": "Wedding Bands"},
-        {"id": "hand_rings_fashion", "title": "Fashion Rings"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "hand_rings", "title": "Designer Rings"},
-        {"id": "women_hand", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_hand_more(to_number):
-    """More hand jewellery"""
-    message = "*More Hand Jewellery:*"
-    
-    buttons = [
-        {"id": "hand_bracelet_chain", "title": "Chain Bracelets"},
-        {"id": "hand_bracelet_charm", "title": "Charm Bracelets"},
-        {"id": "hand_bracelet_cuff", "title": "Cuff Bracelets"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "hand_baju_band", "title": "Baju Band (Armlet)"},
-        {"id": "women_hand", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_neck_collections(to_number):
-    """Show women neck jewellery"""
-    message = "*Neck Jewellery:*"
-    
-    buttons = [
-        {"id": "neck_haar", "title": "Traditional Haar"},
-        {"id": "neck_choker", "title": "Modern Chokers"},
-        {"id": "women_neck_pendants", "title": "Pendants"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "neck_sets", "title": "Bridal Sets"},
-        {"id": "women_neck_more", "title": "More Options →"},
-        {"id": "women_body", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_neck_pendants(to_number):
-    """Pendants sub-menu"""
-    message = "*Pendants:*"
-    
-    buttons = [
-        {"id": "neck_solitaire", "title": "Solitaire Pendants"},
-        {"id": "neck_locket", "title": "Keepsake Lockets"},
-        {"id": "neck_statement", "title": "Statement Pendants"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "women_neck", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
-
-def send_women_neck_more(to_number):
-    """More neck jewellery"""
-    message = "*More Necklaces:*"
-    
-    buttons = [
-        {"id": "neck_princess", "title": "Princess Length"},
-        {"id": "neck_matinee", "title": "Matinee Length"},
-        {"id": "women_neck", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-
-def send_women_lower_collections(to_number):
-    """Show women lower body jewellery"""
-    message = "*Lower Body Jewellery:*"
-    
-    buttons = [
-        {"id": "lower_payal", "title": "Payal Anklets"},
-        {"id": "lower_toe_rings", "title": "Toe Rings"},
-        {"id": "lower_kamarband", "title": "Kamarband"}
-    ]
-    send_whatsapp_buttons(to_number, message, buttons)
-    
-    time.sleep(1)
-    buttons2 = [
-        {"id": "women_body", "title": "← Back"}
-    ]
-    send_whatsapp_buttons(to_number, "More:", buttons2)
 # ═══════════════════════════════════════════════════════════
 # MEN JEWELLERY MENUS
 # ═══════════════════════════════════════════════════════════
