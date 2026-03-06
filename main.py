@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 A Jewel Studio WhatsApp Bot - Collection Based Catalog
 """
