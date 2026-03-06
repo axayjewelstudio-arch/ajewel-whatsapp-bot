@@ -1448,12 +1448,8 @@ def health():
     """Alternative health check"""
     return jsonify({"status": "ok", "service": "whatsapp-bot"}), 200
 
-@app.route('/webhook', methods=['GET', 'POST'])
-def webhook():
-    # ... existing webhook code ...
-
 # ═══════════════════════════════════════════════════════════
-# UPDATED WEBHOOK HANDLER - WITH IMAGE & SEARCH
+# WEBHOOK HANDLER - WITH IMAGE & SEARCH SUPPORT
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -1466,7 +1462,8 @@ def webhook():
             print("Webhook verified")
             return challenge, 200
         return 'Forbidden', 403
-
+    
+    # POST method - handle incoming messages
     data = request.get_json()
     print("=" * 60)
     
