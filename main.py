@@ -1,21 +1,21 @@
-    # ═══════════════════════════════════════════════════════════
-    # A Jewel Studio - Professional WhatsApp Bot
-    # Complete Flow with AI, Image Recognition & Smart Search
-    # ═══════════════════════════════════════════════════════════
-    
-    import os
-    import json
-    import time
-    from datetime import datetime
-    from flask import Flask, request, jsonify
-    from flask_cors import CORS
-    import requests
-    from dotenv import load_dotenv
-    import gspread
-    from google.oauth2.service_account import Credentials
-    import google.generativeai as genai
-    from PIL import Image
-    import io
+# ═══════════════════════════════════════════════════════════
+# A Jewel Studio - Professional WhatsApp Bot v4
+# Complete Flow with AI, Image Recognition & Smart Search
+# ═══════════════════════════════════════════════════════════
+
+import os
+import json
+import time
+from datetime import datetime
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import requests
+from dotenv import load_dotenv
+import gspread
+from google.oauth2.service_account import Credentials
+import google.generativeai as genai
+from PIL import Image
+import io
     
     load_dotenv()
     app = Flask(__name__)
