@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 A Jewel Studio — WhatsApp Bot
 Flow: Hi -> Welcome + MENU -> Category List -> Sub-collection List -> WhatsApp Catalog (inside WA) -> Razorpay
