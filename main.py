@@ -781,52 +781,70 @@ def send_list(to, header, body, btn_text, sections):
     })
 
 def send_catalog_collection(to, collection_id, collection_name):
-    """Open WhatsApp catalog with specific collection"""
+    """Send WhatsApp catalog filtered by product set"""
     try:
-        # Fetch products from Meta Commerce API
+        # Fetch products from this product set using Meta Graph API
         url = f"https://graph.facebook.com/v19.0/{collection_id}/products"
         params = {
-            'fields': 'retailer_id',
             'access_token': WHATSAPP_TOKEN,
+            'fields': 'retailer_id',
             'limit': 30
         }
         
+        logger.info(f"Fetching products for set: {collection_id} ({collection_name})")
         r = requests.get(url, params=params, timeout=10)
         
         if r.ok:
-            products = r.json().get('data', [])
-            retailer_ids = [p['retailer_id'] for p in products if 'retailer_id' in p]
+            data = r.json()
+            products = data.get('data', [])
             
-            if retailer_ids:
-                # Send product list
-                return _wa_post({
-                    'messaging_product': 'whatsapp',
-                    'to': to,
-                    'type': 'interactive',
-                    'interactive': {
-                        'type': 'product_list',
-                        'header': {'type': 'text', 'text': 'A Jewel Studio'},
-                        'body': {'text': collection_name},
-                        'footer': {'text': 'Add to cart, then tap Place Order'},
-                        'action': {
-                            'catalog_id': WHATSAPP_CATALOG_ID,
-                            'sections': [{
-                                'title': collection_name[:24],
-                                'product_items': [
-                                    {'product_retailer_id': rid} for rid in retailer_ids[:30]
-                                ]
-                            }]
+            logger.info(f"Found {len(products)} products in {collection_name}")
+            
+            if products:
+                # Build product items list
+                product_items = [
+                    {'product_retailer_id': p['retailer_id']} 
+                    for p in products if 'retailer_id' in p
+                ]
+                
+                if product_items:
+                    # Send product list message
+                    logger.info(f"Sending {len(product_items)} products to {to}")
+                    return _wa_post({
+                        'messaging_product': 'whatsapp',
+                        'recipient_type': 'individual',
+                        'to': to,
+                        'type': 'interactive',
+                        'interactive': {
+                            'type': 'product_list',
+                            'header': {
+                                'type': 'text',
+                                'text': 'A Jewel Studio'
+                            },
+                            'body': {
+                                'text': f'Browse our {collection_name} collection'
+                            },
+                            'footer': {
+                                'text': 'Add items to cart, then tap Place Order'
+                            },
+                            'action': {
+                                'catalog_id': '1636179520731673',
+                                'sections': [{
+                                    'title': collection_name[:24],
+                                    'product_items': product_items[:30]
+                                }]
+                            }
                         }
-                    }
-                })
+                    })
         
-        # Fallback: empty catalog message
-        send_text(to, f"{collection_name}\n\nThis collection is currently being updated.\n\nHowever, we can help you with custom jewellery designs based on your preference.")
-        return True
+        # Fallback if no products found
+        logger.warning(f"No products found for set {collection_id} ({collection_name})")
+        send_empty_catalog_message(to, 'en')
+        return False
     
     except Exception as e:
-        logger.error(f"Catalog error: {e}")
-        send_text(to, f"{collection_name}\n\nPlease contact our team for assistance.")
+        logger.error(f"Catalog error for {collection_name} (ID: {collection_id}): {e}")
+        send_empty_catalog_message(to, 'en')
         return False
 
 def send_payment_link(to, customer_name, phone, total_paise, lang='en'):
