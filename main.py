@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-A JEWEL STUDIO — WhatsApp Bot  v3
+A JEWEL STUDIO — WhatsApp Bot  v4
 Aru AI Assistant | 82 Collections | Bilingual | Full Production
 
-FIXES IN THIS VERSION
----------------------
-1. Message deduplication     — Meta sends duplicate webhooks; each msg_id processed once only
-2. Row count fixed            — WhatsApp hard limit: max 10 TOTAL rows across all sections
-   Face Jewellery  (20 rows) → buttons first, then per-style scroll lists
-   Hand Jewellery  (11 rows) → buttons first, then per-category scroll lists
-   Men Jewellery   (22 rows) → buttons first, then per-category scroll lists
-   Neck Jewellery  (10 rows) → single list (within limit, OK)
-3. Aru custom_step fix        — validates input is actually a design description
-4. Customer name display      — first_name only in greetings (avoids Shopify last-name truncation)
+WELCOME FLOW (Retail + B2B)
+  Hello {name} + MENU button
+  MENU → scroll list: CATALOGS / CUSTOMISE JEWELRY / MY ORDERS
+  CATALOGS → Baby Jewelry / Women Jewelry / Men Jewelry / Studio Special / Sacred Arts
+  CUSTOMISE JEWELRY → custom order description
+  MY ORDERS → order reference prompt
 
-WHATSAPP LIST CONSTRAINT: total rows across ALL sections in ONE list <= 10
+MEN JEWELRY
+  Scroll list (4 rows): Rings / Bracelets / Chains / Accessories
+  Each → per-category scroll list → catalog
+
+WHATSAPP LIST LIMIT: total rows across ALL sections <= 10
 """
 
 import os, json, logging, time, re, smtplib
@@ -42,10 +42,10 @@ log = logging.getLogger(__name__)
 # CONFIG
 # ─────────────────────────────────────────────────────────────
 
-WA_TOKEN     = os.getenv('WHATSAPP_TOKEN', '')
-WA_PHONE_ID  = os.getenv('WHATSAPP_PHONE_ID', '')
-CATALOG_ID   = os.getenv('WHATSAPP_CATALOG_ID', '')
-VERIFY_TOKEN = os.getenv('VERIFY_TOKEN', 'ajewel2024')
+WA_TOKEN      = os.getenv('WHATSAPP_TOKEN', '')
+WA_PHONE_ID   = os.getenv('WHATSAPP_PHONE_ID', '')
+CATALOG_ID    = os.getenv('WHATSAPP_CATALOG_ID', '')
+VERIFY_TOKEN  = os.getenv('VERIFY_TOKEN', 'ajewel2024')
 SHOPIFY_STORE = os.getenv('SHOPIFY_SHOP_DOMAIN', 'a-jewel-studio-3.myshopify.com')
 SHOPIFY_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN', '')
 SHEET_ID      = os.getenv('GOOGLE_SHEET_ID', '')
@@ -66,17 +66,16 @@ WA_API = f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}/messages"
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    _gm  = genai.GenerativeModel('gemini-pro')
-    _gv  = genai.GenerativeModel('gemini-pro-vision')
+    _gm = genai.GenerativeModel('gemini-pro')
+    _gv = genai.GenerativeModel('gemini-pro-vision')
 else:
     _gm = _gv = None
 
 # ─────────────────────────────────────────────────────────────
-# DEDUPLICATION  ← NEW
-# Keeps last 500 processed message IDs (auto-purges oldest)
+# DEDUPLICATION
 # ─────────────────────────────────────────────────────────────
 
-_processed: list = []   # ordered list of msg_ids
+_processed: list = []
 _DEDUP_MAX = 500
 
 def _already_seen(msg_id: str) -> bool:
@@ -115,11 +114,8 @@ def _cleanup():
 
 # ─────────────────────────────────────────────────────────────
 # CATALOG — 82 COLLECTIONS
-# WhatsApp limit: max 10 TOTAL rows in one list message.
-# Groups that exceed 10 rows use buttons → per-group lists.
 # ─────────────────────────────────────────────────────────────
 
-# Baby (6) — fits in one list
 BABY = {
     'Hair Accessories': '26930579176543121',
     'Earrings':         '34197166099927645',
@@ -129,8 +125,7 @@ BABY = {
     'Bangles':          '25812008941803035',
 }
 
-# Face — shown via buttons, then per-group list
-FACE_EARRINGS = {          # 10 rows — single list
+FACE_EARRINGS = {
     'Diamond Studs':      '26648112538119124',
     'Traditional Jhumka': '26067705569545995',
     'Chandbali':          '26459908080267418',
@@ -142,70 +137,67 @@ FACE_EARRINGS = {          # 10 rows — single list
     'Sui Dhaga':          '26527646070152559',
     'Vintage Chuk':       '26001425306208264',
 }
-FACE_NOSE = {              # 4 rows
+FACE_NOSE = {
     'Bridal Nath':   '26146672631634215',
     'Nose Pins':     '25816769131325224',
     'Septum Rings':  '26137405402565188',
     'Clip On Rings': '25956080384032593',
 }
-FACE_HEAD = {              # 5 rows
+FACE_HEAD = {
     'Maang Tikka':  '34096814326631390',
     'Matha Patti':  '25972597769065393',
     'Passa':        '25853734394311094',
     'Head Kanser':  '26924099463860066',
     'Sheesh Phool': '25884225787909036',
 }
-FACE_HAIR = {              # 1 row
+FACE_HAIR = {
     'Hair Clips': '25923141554014968',
 }
 
-# Hand — shown via buttons, then per-group list (total 11 — split needed)
-HAND_BANGLES = {           # 2 rows
+HAND_BANGLES = {
     'Traditional Bangles': '25990285673976585',
     'Designer Kada':       '26202123256143866',
 }
-HAND_BRACELETS = {         # 4 rows
+HAND_BRACELETS = {
     'Classic Bracelets': '26479540271641962',
     'Chain Bracelets':   '26553938717531086',
     'Charm Bracelets':   '25889526627383303',
     'Cuff Bracelets':    '26095567730084970',
 }
-HAND_ARMLETS = {           # 1 row
+HAND_ARMLETS = {
     'Baju Band': '25741475325553252',
 }
-HAND_RINGS = {             # 4 rows
+HAND_RINGS = {
     'Designer Rings':   '26458893303705648',
     'Engagement Rings': '26577195808532633',
     'Wedding Bands':    '26283285724614486',
     'Fashion Rings':    '26627787650158306',
 }
 
-# Neck — 10 rows total, fits in one list
-NECK_NECKLACES = {         # 5 rows
+NECK_NECKLACES = {
     'Traditional Haar':   '34124391790542901',
     'Modern Chokers':     '34380933844854505',
     'Princess Necklaces': '27036678569255877',
     'Matinee Necklaces':  '34810362708554746',
     'Necklace':           '27022573597332099',
 }
-NECK_PENDANTS = {          # 4 rows
+NECK_PENDANTS = {
     'Pendants':           '25892524293743018',
     'Solitaire Pendants': '26345939121667071',
     'Locket Pendants':    '34949414394649401',
     'Statement Pendants': '34061823006795079',
 }
-NECK_BRIDAL = {            # 1 row
+NECK_BRIDAL = {
     'Bridal Sets': '34181230154825697',
 }
 
-LOWER = {                  # 3 rows
+LOWER = {
     'Kamarband':     '25970100975978085',
     'Payal Anklets': '26108970985433226',
     'Toe Rings':     '26041413228854859',
 }
 
-# Men — shown via buttons, then per-group list (total 22 — split needed)
-MEN_RINGS = {              # 6 rows
+MEN_RINGS = {
     'Wedding Bands':    '35279590828306838',
     'Engagement Rings': '26205064579128433',
     'Signet Rings':     '26133044123050259',
@@ -213,18 +205,18 @@ MEN_RINGS = {              # 6 rows
     'Classic Bands':    '26048808064813747',
     'Gemstone Rings':   '25392189793787605',
 }
-MEN_BRACELETS = {          # 4 rows
+MEN_BRACELETS = {
     'Chain Bracelets':   '26028399416826135',
     'Leather Bracelets': '24614722568226121',
     'Beaded Bracelets':  '26526947026910291',
     'Cuff Bracelets':    '26224048963949143',
 }
-MEN_CHAINS = {             # 3 rows
+MEN_CHAINS = {
     'Gold Chains':   '26614026711549117',
     'Silver Chains': '35305915439007559',
     'Rope Chains':   '25364645956543386',
 }
-MEN_ACCESSORIES = {        # 9 rows
+MEN_ACCESSORIES = {
     'Classic Cufflinks':  '25956694700651645',
     'Designer Cufflinks': '25283486371327046',
     'Tie Pins':           '34056958820614334',
@@ -236,27 +228,23 @@ MEN_ACCESSORIES = {        # 9 rows
     'Pendant Stone':      '26441867825407906',
 }
 
-WATCHES = {                # 5 rows
+WATCHES = {
     'Men Timepieces':    '34176915238618497',
     'Women Timepieces':  '26903528372573194',
     'Kids Timepieces':   '26311558718468909',
     'Smart Watches':     '25912162851771673',
     'Luxury Timepieces': '26667915832816156',
 }
-STUDIO_ACCESSORIES = {     # 4 rows
+STUDIO_ACCESSORIES = {
     'Premium Keychains': '26255788447385252',
     'Evening Clutches':  '34514139158199452',
     'Sunglasses':        '25258040713868720',
     'Designer Belts':    '26176082815414211',
 }
 
-# Flat id → name lookup
+# Flat id → name
 ID_TO_NAME: dict = {}
-
-def _reg(d: dict):
-    for name, cid in d.items():
-        ID_TO_NAME[cid] = name
-
+def _reg(d): [ID_TO_NAME.update({cid: name}) for name, cid in d.items()]
 for _d in [BABY, FACE_EARRINGS, FACE_NOSE, FACE_HEAD, FACE_HAIR,
            HAND_BANGLES, HAND_BRACELETS, HAND_ARMLETS, HAND_RINGS,
            NECK_NECKLACES, NECK_PENDANTS, NECK_BRIDAL, LOWER,
@@ -267,7 +255,7 @@ for _d in [BABY, FACE_EARRINGS, FACE_NOSE, FACE_HEAD, FACE_HAIR,
 ALL_NAMES = list(ID_TO_NAME.values())
 
 # ─────────────────────────────────────────────────────────────
-# HELPERS — build scroll-list rows/sections
+# HELPERS
 # ─────────────────────────────────────────────────────────────
 
 def _rows(d: dict) -> list:
@@ -294,7 +282,6 @@ def admin_email(subject: str, body: str):
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as srv:
                 srv.login(GMAIL_USER, GMAIL_PASS)
                 srv.sendmail(GMAIL_USER, addr, msg.as_string())
-        log.info(f"Admin email: {subject}")
     except Exception as e:
         log.error(f"Email: {e}")
 
@@ -321,7 +308,7 @@ def sheets_lookup(phone: str) -> dict:
     try:
         if not _gc or not SHEET_ID:
             return {'exists': False}
-        ws = _gc.open_by_key(SHEET_ID).worksheet('Registrations')
+        ws     = _gc.open_by_key(SHEET_ID).worksheet('Registrations')
         phones = ws.col_values(1)
         for i, p in enumerate(phones, 1):
             if p == phone:
@@ -366,8 +353,6 @@ def shopify_lookup(phone: str) -> dict:
                 return {
                     'exists':     True,
                     'first_name': c.get('first_name', '') or '',
-                    'last_name':  c.get('last_name',  '') or '',
-                    'email':      c.get('email',      '') or '',
                     'b2b':        bool(tags & {'B2B', 'Wholesale', 'b2b', 'wholesale'}),
                 }
         return {'exists': False}
@@ -376,24 +361,20 @@ def shopify_lookup(phone: str) -> dict:
         return {'exists': False}
 
 def customer_status(phone: str) -> dict:
-    """Returns status: new | incomplete | retail | b2b"""
     s = shopify_lookup(phone)
     if s['exists']:
-        fn = s['first_name'] or 'Customer'
         return {
             'status':     'b2b' if s['b2b'] else 'retail',
-            'first_name': fn,
-            'email':      s['email'],
+            'first_name': s['first_name'] or 'Customer',
         }
     sh = sheets_lookup(phone)
     if sh['exists']:
         return {
             'status':     'incomplete',
             'first_name': sh['first_name'] or 'Customer',
-            'email':      '',
         }
     sheets_log(phone)
-    return {'status': 'new', 'first_name': 'Customer', 'email': ''}
+    return {'status': 'new', 'first_name': 'Customer'}
 
 # ─────────────────────────────────────────────────────────────
 # FUZZY SEARCH
@@ -438,7 +419,7 @@ def rzp_link(amount_paise: int, name: str, phone: str, ref: str):
         return None
 
 # ─────────────────────────────────────────────────────────────
-# REFERRAL CODE
+# REFERRAL
 # ─────────────────────────────────────────────────────────────
 
 def referral_code(first_name: str, phone: str) -> str:
@@ -446,14 +427,13 @@ def referral_code(first_name: str, phone: str) -> str:
     return f"AJS-{prefix}-{phone[-4:]}"
 
 # ─────────────────────────────────────────────────────────────
-# LANGUAGE DETECTION
+# LANGUAGE
 # ─────────────────────────────────────────────────────────────
 
-_HI_WORDS = {
+_HI = {
     'hai', 'hain', 'kya', 'aap', 'mujhe', 'chahiye', 'dikhao', 'batao',
     'kaise', 'kaha', 'nahi', 'accha', 'theek', 'zaroor', 'bhi', 'aur',
-    'woh', 'yeh', 'abhi', 'jaldi', 'kaisa', 'kaisi', 'bol', 'raha', 'rahe',
-    'samaj', 'samajh', 'nai', 'nahi',
+    'woh', 'yeh', 'abhi', 'jaldi', 'bol', 'raha', 'rahe', 'samaj', 'nai',
 }
 
 def detect_lang(text: str) -> str:
@@ -461,7 +441,7 @@ def detect_lang(text: str) -> str:
         return 'en'
     if len(re.findall(r'[\u0900-\u097F]', text)) > len(text) * 0.25:
         return 'hi'
-    if set(text.lower().split()) & _HI_WORDS:
+    if set(text.lower().split()) & _HI:
         return 'hi'
     return 'en'
 
@@ -470,25 +450,12 @@ def detect_lang(text: str) -> str:
 # ─────────────────────────────────────────────────────────────
 
 _ARU = """You are Aru, a professional jewelry consultant at A Jewel Studio.
-
-Personality: Luxury, warm, confident, professional — like a trusted personal stylist.
-Never confused or uncertain. Always composed and elegant.
-
-Responsibilities:
-- Answer product questions, availability, recommendations
-- Handle custom order inquiries with enthusiasm
-- Generate referral codes (format: AJS-XXX-XXXX)
-- Share new arrivals, trends, brand story
-- Guide budget-based jewelry selection
-- Respond to any non-menu question
-
+Personality: Luxury, warm, confident, professional.
 Rules:
-- Maximum 3 sentences — sharp and elegant
-- No emojis, no icons
-- No raw URLs or links in your text
-- If price is uncertain, say the team will confirm
-- Address customer by first name if known
-- If customer seems confused or asks a general question, guide them warmly
+- Max 2 sentences. Sharp and elegant.
+- No emojis, no icons, no raw URLs.
+- Address customer by first name.
+- If unsure about price or stock, say the team will confirm.
 """
 
 def ask_aru(question: str, lang: str, first_name: str, context: str = '') -> str | None:
@@ -498,39 +465,27 @@ def ask_aru(question: str, lang: str, first_name: str, context: str = '') -> str
         lang_note = (
             "Respond in English only."
             if lang == 'en' else
-            "Respond in Hindi/Hinglish using Roman script only (no Devanagari)."
+            "Respond in Hindi/Hinglish using Roman script only."
         )
-        prompt = f"""{_ARU}
-Customer first name: {first_name}
-Language: {lang_note}
-Context: {context}
-
-Customer says: {question}
-
-Reply as Aru — max 3 sentences, no emojis, no links."""
+        prompt = (
+            f"{_ARU}\nCustomer: {first_name}\nLanguage: {lang_note}\n"
+            f"Context: {context}\n\nCustomer says: {question}\n\n"
+            "Reply as Aru — max 2 sentences, no emojis."
+        )
         return _gm.generate_content(prompt).text.strip()
     except Exception as e:
         log.error(f"Aru: {e}")
         return None
 
-def is_design_description(text: str) -> bool:
-    """
-    Check if a text message is actually a jewelry design description.
-    Prevents confused customer messages being treated as custom order details.
-    """
-    text_lower = text.lower()
-    # Must have at least some jewelry/design related words
+def is_design_desc(text: str) -> bool:
+    words = set(re.findall(r'\w+', text.lower()))
     design_words = {
         'ring', 'necklace', 'bracelet', 'earring', 'bangle', 'kada', 'chain',
         'pendant', 'anklet', 'choker', 'gold', 'silver', 'diamond', 'stone',
-        'bridal', 'wedding', 'engagement', 'traditional', 'modern', 'design',
-        'material', 'size', 'colour', 'color', 'occasion', 'gift', 'budget',
-        # Hindi/Hinglish
-        'sona', 'chandi', 'heera', 'haar', 'payal', 'mangalsutra', 'jhumka',
-        'kangan', 'angoothi', 'shaadi', 'dulhan', 'design', 'banao', 'chahiye',
-        'style', 'type', 'weight', 'gram',
+        'bridal', 'wedding', 'engagement', 'design', 'material', 'occasion',
+        'budget', 'style', 'type', 'weight', 'gram', 'sona', 'chandi',
+        'haar', 'payal', 'jhumka', 'kangan', 'angoothi', 'shaadi', 'dulhan',
     }
-    words = set(re.findall(r'\w+', text_lower))
     return bool(words & design_words)
 
 def aru_vision(image_url: str) -> dict | None:
@@ -541,31 +496,28 @@ def aru_vision(image_url: str) -> dict | None:
         if not img.ok:
             return None
         resp = _gv.generate_content([
-            "Analyze this jewelry image. State: jewelry type, style (traditional/modern/bridal), material. One sentence.",
+            "Identify jewelry type and style in this image. One sentence.",
             {'mime_type': 'image/jpeg', 'data': img.content}
         ])
-        analysis = resp.text.strip()
-        al = analysis.lower()
-        kw = []
-        for t in ['earring', 'jhumka', 'necklace', 'ring', 'bracelet', 'bangle',
-                  'kada', 'chain', 'pendant', 'anklet', 'payal', 'choker']:
-            if t in al: kw.append(t)
-        for s in ['traditional', 'modern', 'bridal', 'ethnic', 'classic']:
-            if s in al: kw.append(s)
-        return {'query': ' '.join(kw[:3]) or 'jewellery'}
+        al = resp.text.strip().lower()
+        kw = [t for t in ['earring', 'jhumka', 'necklace', 'ring', 'bracelet',
+                           'bangle', 'kada', 'chain', 'pendant', 'anklet',
+                           'traditional', 'modern', 'bridal'] if t in al]
+        return {'query': ' '.join(kw[:3]) or 'jewelry'}
     except Exception as e:
         log.error(f"Vision: {e}")
         return None
 
 # ─────────────────────────────────────────────────────────────
-# WHATSAPP — CORE SENDERS
+# WHATSAPP SENDERS
 # ─────────────────────────────────────────────────────────────
 
 def _post(payload: dict) -> bool:
     try:
         r = requests.post(
             WA_API,
-            headers={'Authorization': f'Bearer {WA_TOKEN}', 'Content-Type': 'application/json'},
+            headers={'Authorization': f'Bearer {WA_TOKEN}',
+                     'Content-Type':  'application/json'},
             json=payload, timeout=10
         )
         if not r.ok:
@@ -584,7 +536,9 @@ def btn1(to: str, body: str, bid: str, label: str) -> bool:
         'messaging_product': 'whatsapp', 'to': to, 'type': 'interactive',
         'interactive': {
             'type': 'button', 'body': {'text': body},
-            'action': {'buttons': [{'type': 'reply', 'reply': {'id': bid, 'title': label[:20]}}]}
+            'action': {'buttons': [
+                {'type': 'reply', 'reply': {'id': bid, 'title': label[:20]}}
+            ]}
         }
     })
 
@@ -601,13 +555,9 @@ def btns(to: str, body: str, buttons: list) -> bool:
     })
 
 def scroll(to: str, header: str, body: str, btn_text: str, sections: list) -> bool:
-    """
-    Single scroll list.
-    HARD LIMIT: total rows across ALL sections must be <= 10.
-    """
     total = sum(len(s.get('rows', [])) for s in sections)
     if total > 10:
-        log.error(f"scroll() called with {total} rows — exceeds WhatsApp limit of 10.")
+        log.error(f"scroll() {total} rows — exceeds WA limit of 10!")
     return _post({
         'messaging_product': 'whatsapp', 'to': to, 'type': 'interactive',
         'interactive': {
@@ -629,7 +579,6 @@ def cta(to: str, body: str, label: str, url: str) -> bool:
     })
 
 def open_catalog(to: str, cid: str, cname: str) -> bool:
-    """Open WhatsApp catalog inside WhatsApp — only selected collection's products."""
     try:
         r = requests.get(
             f"https://graph.facebook.com/v19.0/{cid}/products",
@@ -655,7 +604,7 @@ def open_catalog(to: str, cid: str, cname: str) -> bool:
                         }
                     }
                 })
-        log.warning(f"No products in collection {cid}")
+        log.warning(f"No products: {cid}")
         return False
     except Exception as e:
         log.error(f"open_catalog: {e}")
@@ -668,13 +617,14 @@ def _p(t: float = 0.4):
 # FLOWS
 # ─────────────────────────────────────────────────────────────
 
+# ── NEW CUSTOMER ──────────────────────────────────────────────
 def flow_new_customer(to: str, lang: str):
     if lang == 'hi':
         tx(to, "Hello\nA Jewel Studio mein aapka swagat hai.")
         _p()
         cta(to,
             "Main Aru hoon, aapki Studio Assistant.\n"
-            "Hamari exclusive collections explore karne ke liye register karein.",
+            "Hamari exclusive jewelry collections explore karne ke liye register karein.",
             "JOIN US",
             f"https://{SHOPIFY_STORE}/pages/join-us?wa={to}")
     else:
@@ -682,94 +632,90 @@ def flow_new_customer(to: str, lang: str):
         _p()
         cta(to,
             "I am Aru, your Studio Assistant.\n"
-            "Register to explore our exclusive jewellery collections.",
+            "Register to explore our exclusive jewelry collections.",
             "JOIN US",
             f"https://{SHOPIFY_STORE}/pages/join-us?wa={to}")
 
+# ── INCOMPLETE REGISTRATION ───────────────────────────────────
 def flow_incomplete(to: str, lang: str):
     if lang == 'hi':
         cta(to,
-            "Hello\n\nAapki registration abhi complete nahi hui.\n"
+            "Hello\nAapki registration complete nahi hui hai.\n"
             "Please registration complete karein.",
             "COMPLETE REGISTRATION",
             f"https://{SHOPIFY_STORE}/pages/join-us?wa={to}")
     else:
         cta(to,
-            "Hello\n\nYour registration is not yet complete.\n"
+            "Hello\nYour registration is not yet complete.\n"
             "Please complete it to continue.",
             "COMPLETE REGISTRATION",
             f"https://{SHOPIFY_STORE}/pages/join-us?wa={to}")
 
-def flow_main_menu(to: str, lang: str):
+# ── WELCOME (Retail + B2B both get MENU button) ───────────────
+def flow_welcome(to: str, first_name: str, lang: str):
+    if lang == 'hi':
+        tx(to, f"Hello {first_name}\nA Jewel Studio mein dobara swagat hai.")
+    else:
+        tx(to, f"Hello {first_name}\nWelcome back to A Jewel Studio.")
+    _p()
+    btn1(to, "How may I assist you today?" if lang == 'en' else "Aaj main aapki kya madad kar sakti hoon?",
+         'MENU', 'MENU')
+
+# ── ACTION MENU (MENU button click) ──────────────────────────
+# Scroll list: CATALOGS / CUSTOMISE JEWELRY / MY ORDERS
+def flow_action_menu(to: str, lang: str):
     scroll(to,
         header='A Jewel Studio',
-        body=(
-            'Please choose a collection to explore.'
-            if lang == 'en' else
-            'Apni pasand ki collection select karein.'
-        ),
-        btn_text='MENU',
+        body='Please select an option.' if lang == 'en' else 'Ek option select karein.',
+        btn_text='SELECT',
+        sections=[{'title': 'Options', 'rows': [
+            {'id': 'ACT_CATALOGS',  'title': 'Catalogs'},
+            {'id': 'ACT_CUSTOMISE', 'title': 'Customise Jewelry'},
+            {'id': 'ACT_ORDERS',    'title': 'My Orders'},
+        ]}]
+    )
+
+# ── CATALOGS LIST ─────────────────────────────────────────────
+def flow_catalogs(to: str, lang: str):
+    scroll(to,
+        header='Catalogs',
+        body='Select a category.' if lang == 'en' else 'Ek category select karein.',
+        btn_text='SELECT',
         sections=[{'title': 'Collections', 'rows': [
-            {'id': 'CAT_BABY',   'title': 'Baby Jewellery'},
-            {'id': 'CAT_WOMEN',  'title': 'Women Jewellery'},
-            {'id': 'CAT_MEN',    'title': 'Men Jewellery'},
+            {'id': 'CAT_BABY',   'title': 'Baby Jewelry'},
+            {'id': 'CAT_WOMEN',  'title': 'Women Jewelry'},
+            {'id': 'CAT_MEN',    'title': 'Men Jewelry'},
             {'id': 'CAT_STUDIO', 'title': 'Studio Special'},
             {'id': 'CAT_SACRED', 'title': 'Sacred Arts'},
         ]}]
     )
 
-def flow_retail_welcome(to: str, first_name: str, lang: str):
-    if lang == 'hi':
-        tx(to, f"Hello {first_name}\n\nA Jewel Studio mein dobara swagat hai.")
-    else:
-        tx(to, f"Hello {first_name}\n\nWelcome back to A Jewel Studio.")
-    _p()
-    flow_main_menu(to, lang)
-
-def flow_b2b_welcome(to: str, first_name: str, lang: str):
-    if lang == 'hi':
-        tx(to, f"Hello {first_name}\n\nA Jewel Studio mein dobara swagat hai.")
-    else:
-        tx(to, f"Hello {first_name}\n\nWelcome back to A Jewel Studio.")
-    _p()
-    btns(to,
-        "How may I assist you today?" if lang == 'en' else "Aaj main aapki kya madad kar sakti hoon?",
-        [
-            {'id': 'BROWSE',       'title': 'BROWSE COLLECTIONS'},
-            {'id': 'CUSTOM_ORDER', 'title': 'CUSTOM ORDER'},
-            {'id': 'MY_ORDERS',    'title': 'MY ORDERS'},
-        ]
-    )
-
-# Baby — single list (6 rows, within limit)
+# ── BABY ──────────────────────────────────────────────────────
 def flow_baby(to: str, lang: str):
-    scroll(to, 'Baby Jewellery',
-        'Select a collection.' if lang == 'en' else 'Ek collection select karein.',
-        'SELECT', [_sec('Baby Jewellery', BABY)])
+    scroll(to, 'Baby Jewelry',
+        'Select a collection.' if lang == 'en' else 'Collection select karein.',
+        'SELECT', [_sec('Baby Jewelry', BABY)])
 
-# Women body-part selector
+# ── WOMEN ─────────────────────────────────────────────────────
 def flow_women_body(to: str, lang: str):
     btns(to,
-        ('You are exploring Women Jewellery.\nPlease choose a category.'
-         if lang == 'en' else
-         'Aap Women Jewellery dekh rahi hain.\nEk category select karein.'),
+        'Select a category.' if lang == 'en' else 'Ek category select karein.',
         [
-            {'id': 'W_FACE', 'title': 'FACE JEWELLERY'},
-            {'id': 'W_HAND', 'title': 'HAND JEWELLERY'},
-            {'id': 'W_NECK', 'title': 'NECK JEWELLERY'},
+            {'id': 'W_FACE', 'title': 'FACE JEWELRY'},
+            {'id': 'W_HAND', 'title': 'HAND JEWELRY'},
+            {'id': 'W_NECK', 'title': 'NECK JEWELRY'},
         ]
     )
     _p()
-    btn1(to, 'Or explore Lower Body Jewellery.', 'W_LOWER', 'LOWER BODY')
+    btn1(to, 'Or explore Lower Body Jewelry.', 'W_LOWER', 'LOWER BODY')
 
-# Face — buttons then per-style list
 def flow_face_menu(to: str, lang: str):
     btns(to,
-        'Please choose a style to explore.' if lang == 'en' else 'Ek style select karein.',
+        'Select a style.' if lang == 'en' else 'Ek style select karein.',
         [
             {'id': 'F_EARRINGS', 'title': 'EARRINGS'},
-            {'id': 'F_NOSE',     'title': 'NOSE JEWELLERY'},
-            {'id': 'F_HEAD',     'title': 'HEAD JEWELLERY'},
+            {'id': 'F_NOSE',     'title': 'NOSE JEWELRY'},
+            {'id': 'F_HEAD',     'title': 'HEAD JEWELRY'},
         ]
     )
     _p()
@@ -777,26 +723,22 @@ def flow_face_menu(to: str, lang: str):
 
 def flow_face_earrings(to: str, lang: str):
     scroll(to, 'Earrings', 'Select a collection.', 'SELECT',
-           [_sec('Earrings', FACE_EARRINGS)])      # 10 rows — OK
+           [_sec('Earrings', FACE_EARRINGS)])
 
 def flow_face_nose(to: str, lang: str):
-    scroll(to, 'Nose Jewellery', 'Select a collection.', 'SELECT',
-           [_sec('Nose Jewellery', FACE_NOSE)])     # 4 rows
+    scroll(to, 'Nose Jewelry', 'Select a collection.', 'SELECT',
+           [_sec('Nose Jewelry', FACE_NOSE)])
 
 def flow_face_head(to: str, lang: str):
-    scroll(to, 'Head Jewellery', 'Select a collection.', 'SELECT',
-           [_sec('Head Jewellery', FACE_HEAD)])     # 5 rows
+    scroll(to, 'Head Jewelry', 'Select a collection.', 'SELECT',
+           [_sec('Head Jewelry', FACE_HEAD)])
 
 def flow_face_hair(to: str, lang: str):
-    # Only 1 item — open catalog directly
-    cname = 'Hair Clips'
-    cid   = FACE_HAIR['Hair Clips']
-    flow_open_collection(to, cid, cname, lang)
+    flow_open_collection(to, FACE_HAIR['Hair Clips'], 'Hair Clips', lang)
 
-# Hand — buttons then per-category list
 def flow_hand_menu(to: str, lang: str):
     btns(to,
-        'Please choose a category.' if lang == 'en' else 'Ek category select karein.',
+        'Select a category.' if lang == 'en' else 'Ek category select karein.',
         [
             {'id': 'H_BANGLES',   'title': 'BANGLES AND KADA'},
             {'id': 'H_BRACELETS', 'title': 'BRACELETS'},
@@ -808,169 +750,156 @@ def flow_hand_menu(to: str, lang: str):
 
 def flow_hand_bangles(to: str, lang: str):
     scroll(to, 'Bangles and Kada', 'Select a collection.', 'SELECT',
-           [_sec('Bangles and Kada', HAND_BANGLES)])   # 2 rows
+           [_sec('Bangles and Kada', HAND_BANGLES)])
 
 def flow_hand_bracelets(to: str, lang: str):
     scroll(to, 'Bracelets', 'Select a collection.', 'SELECT',
-           [_sec('Bracelets', HAND_BRACELETS)])         # 4 rows
+           [_sec('Bracelets', HAND_BRACELETS)])
 
 def flow_hand_armlets(to: str, lang: str):
-    cname = 'Baju Band'
-    cid   = HAND_ARMLETS['Baju Band']
-    flow_open_collection(to, cid, cname, lang)
+    flow_open_collection(to, HAND_ARMLETS['Baju Band'], 'Baju Band', lang)
 
 def flow_hand_rings(to: str, lang: str):
     scroll(to, 'Rings', 'Select a collection.', 'SELECT',
-           [_sec('Rings', HAND_RINGS)])                 # 4 rows
+           [_sec('Rings', HAND_RINGS)])
 
-# Neck — single list (10 rows, exactly at limit)
 def flow_neck_menu(to: str, lang: str):
-    scroll(to, 'Neck Jewellery',
-        'Please choose a style.' if lang == 'en' else 'Ek style select karein.',
+    # 10 rows total — OK
+    scroll(to, 'Neck Jewelry',
+        'Select a style.' if lang == 'en' else 'Ek style select karein.',
         'SELECT',
         [
             _sec('Necklaces',   NECK_NECKLACES),   # 5
             _sec('Pendants',    NECK_PENDANTS),     # 4
             _sec('Bridal Sets', NECK_BRIDAL),       # 1
         ]
-    )   # total = 10 — OK
+    )
 
 def flow_lower(to: str, lang: str):
-    scroll(to, 'Lower Body Jewellery', 'Select a collection.', 'SELECT',
-           [_sec('Lower Body', LOWER)])   # 3 rows
+    scroll(to, 'Lower Body Jewelry', 'Select a collection.', 'SELECT',
+           [_sec('Lower Body', LOWER)])
 
-# Men — buttons then per-category list
+# ── MEN — scroll list first (4 sub-cats), then each sub has its own list ──
 def flow_men_menu(to: str, lang: str):
-    btns(to,
-        'Please choose a category.' if lang == 'en' else 'Ek category select karein.',
-        [
-            {'id': 'M_RINGS',      'title': 'RINGS'},
-            {'id': 'M_BRACELETS',  'title': 'BRACELETS'},
-            {'id': 'M_CHAINS',     'title': 'CHAINS'},
-        ]
+    # 4 rows — sub-category picker via scroll list
+    scroll(to, 'Men Jewelry',
+        'Select a category.' if lang == 'en' else 'Ek category select karein.',
+        'SELECT',
+        [{'title': 'Men Jewelry', 'rows': [
+            {'id': 'M_RINGS',      'title': 'Rings'},
+            {'id': 'M_BRACELETS',  'title': 'Bracelets'},
+            {'id': 'M_CHAINS',     'title': 'Chains'},
+            {'id': 'M_ACCESSORIES','title': 'Accessories'},
+        ]}]
     )
-    _p()
-    btn1(to, 'Or explore Men Accessories.', 'M_ACCESSORIES', 'ACCESSORIES')
 
 def flow_men_rings(to: str, lang: str):
     scroll(to, 'Men Rings', 'Select a collection.', 'SELECT',
-           [_sec('Rings', MEN_RINGS)])           # 6 rows
+           [_sec('Rings', MEN_RINGS)])
 
 def flow_men_bracelets(to: str, lang: str):
     scroll(to, 'Men Bracelets', 'Select a collection.', 'SELECT',
-           [_sec('Bracelets', MEN_BRACELETS)])   # 4 rows
+           [_sec('Bracelets', MEN_BRACELETS)])
 
 def flow_men_chains(to: str, lang: str):
     scroll(to, 'Men Chains', 'Select a collection.', 'SELECT',
-           [_sec('Chains', MEN_CHAINS)])         # 3 rows
+           [_sec('Chains', MEN_CHAINS)])
 
 def flow_men_accessories(to: str, lang: str):
     scroll(to, 'Men Accessories', 'Select a collection.', 'SELECT',
-           [_sec('Accessories', MEN_ACCESSORIES)])  # 9 rows
+           [_sec('Accessories', MEN_ACCESSORIES)])
 
-# Studio
+# ── STUDIO ────────────────────────────────────────────────────
 def flow_studio_menu(to: str, lang: str):
-    btns(to,
-        'Please choose a category.' if lang == 'en' else 'Ek category select karein.',
-        [
-            {'id': 'S_WATCHES', 'title': 'WATCHES'},
-            {'id': 'S_ACCSS',   'title': 'ACCESSORIES'},
-        ]
-    )
+    btns(to, 'Select a category.', [
+        {'id': 'S_WATCHES', 'title': 'WATCHES'},
+        {'id': 'S_ACCSS',   'title': 'ACCESSORIES'},
+    ])
 
 def flow_watches(to: str, lang: str):
     scroll(to, 'Watches', 'Select a collection.', 'SELECT',
-           [_sec('Watches', WATCHES)])                       # 5 rows
+           [_sec('Watches', WATCHES)])
 
 def flow_studio_acc(to: str, lang: str):
     scroll(to, 'Studio Accessories', 'Select a collection.', 'SELECT',
-           [_sec('Studio Accessories', STUDIO_ACCESSORIES)]) # 4 rows
+           [_sec('Studio Accessories', STUDIO_ACCESSORIES)])
 
-# Catalog open
+# ── CATALOG OPEN ──────────────────────────────────────────────
 def flow_open_collection(to: str, cid: str, cname: str, lang: str):
     tx(to,
-        f"You are now viewing our {cname} Collection.\n"
-        "Browse the designs and add your favourites to the cart."
+        f"You are viewing our {cname} Collection.\n"
+        "Add your favourites to the cart and tap Place Order."
         if lang == 'en' else
-        f"Aap ab {cname} Collection dekh rahe hain.\n"
-        "Apna pasandida design select karein aur cart mein add karein."
+        f"Aap {cname} Collection dekh rahe hain.\n"
+        "Pasandida design cart mein add karein aur Place Order tap karein."
     )
     _p()
     if not open_catalog(to, cid, cname):
         flow_empty_catalog(to, lang)
 
-# Empty catalog
+# ── EMPTY CATALOG ─────────────────────────────────────────────
 def flow_empty_catalog(to: str, lang: str):
     tx(to,
-        "This collection is currently being updated.\n\n"
-        "We accept custom orders and can craft a design of your choice."
+        "This collection is being updated.\n\n"
+        "We accept custom orders — our team can craft a design of your choice."
         if lang == 'en' else
-        "Yeh collection abhi update ho rahi hai.\n\n"
-        "Hum custom orders accept karte hain aur aapki pasand ka design bana sakte hain."
+        "Yeh collection update ho rahi hai.\n\n"
+        "Hum custom orders accept karte hain — aapki pasand ka design bana sakte hain."
     )
     _p()
     btns(to,
-        'How would you like to proceed?' if lang == 'en' else 'Aap kaise aage badhna chahenge?',
+        'How would you like to proceed?' if lang == 'en' else 'Kaise aage badhna chahenge?',
         [
-            {'id': 'CUSTOM_ORDER',  'title': 'CUSTOM ORDER'},
-            {'id': 'BROWSE',        'title': 'BROWSE COLLECTIONS'},
+            {'id': 'ACT_CUSTOMISE', 'title': 'CUSTOMISE JEWELRY'},
+            {'id': 'ACT_CATALOGS',  'title': 'CATALOGS'},
             {'id': 'CONTACT_TEAM',  'title': 'CONTACT TEAM'},
         ]
     )
 
-# Custom order
-def flow_custom_order_start(to: str, first_name: str, phone: str, is_b2b: bool, lang: str):
+# ── CUSTOM ORDER ──────────────────────────────────────────────
+def flow_custom_start(to: str, first_name: str, phone: str, is_b2b: bool, lang: str):
     get_session(phone)['custom_step'] = 'awaiting_description'
     if lang == 'hi':
         tx(to,
             f"Hume aapke liye custom piece banana bahut khushi hogi, {first_name}.\n\n"
-            "Apni requirements batayein — jewellery ka type, material, occasion, aur koi specific design idea."
+            "Apni requirements batayein — jewelry ka type, material, occasion, aur design idea."
         )
     else:
         tx(to,
             f"We would be delighted to create a custom piece for you, {first_name}.\n\n"
-            "Please describe your requirements — jewellery type, material, occasion, and any design ideas."
+            "Please describe your requirements — jewelry type, material, occasion, and any design ideas."
         )
     if is_b2b:
         _p()
         btn1(to, 'You may also upload a reference design file.', 'UPLOAD_FILE', 'UPLOAD DESIGN FILE')
 
-def flow_custom_order_done(to: str, first_name: str, phone: str, description: str, is_b2b: bool, lang: str):
+def flow_custom_done(to: str, first_name: str, phone: str, desc: str, is_b2b: bool, lang: str):
     tx(to,
-        "Thank you for sharing your requirements.\n\n"
-        "Our design team will review your request and get back to you within 24 hours."
+        "Thank you. Our design team will review your request and contact you within 24 hours."
         if lang == 'en' else
-        "Aapki requirements share karne ke liye shukriya.\n\n"
-        "Hamari design team 24 ghante mein aapse contact karegi."
+        "Shukriya. Hamari design team 24 ghante mein aapse contact karegi."
     )
     admin_email(
         subject=f"Custom Order — {first_name} — {phone}",
-        body=(
-            f"Custom order request received.\n\n"
-            f"Customer : {first_name}\n"
-            f"Phone    : {phone}\n"
-            f"Type     : {'B2B' if is_b2b else 'Retail'}\n\n"
-            f"Requirements:\n{description}"
-        )
+        body=f"Custom order request.\n\nCustomer: {first_name}\nPhone: {phone}\nType: {'B2B' if is_b2b else 'Retail'}\n\nRequirements:\n{desc}"
     )
 
-# Order placed
+# ── ORDER PLACED ──────────────────────────────────────────────
 def flow_order_placed(to: str, phone: str, first_name: str, items: list, lang: str):
     total = sum(int(float(i.get('item_price', 0)) * 100) * i.get('quantity', 1) for i in items)
     ref   = f"AJS-{phone[-4:]}-{int(datetime.now().timestamp())}"
     url   = rzp_link(total, first_name, phone, ref)
     if url:
         body = (
-            f"A Jewel Studio choose karne ke liye dhanyavaad.\n\nOrder Reference: {ref}\n\n"
-            "Payment ke liye neeche tap karein."
-            if lang == 'hi' else
             f"Thank you for choosing A Jewel Studio.\n\nOrder Reference: {ref}\n\n"
             "Please complete your payment using the button below."
+            if lang == 'en' else
+            f"A Jewel Studio choose karne ke liye dhanyavaad.\n\nOrder Reference: {ref}\n\n"
+            "Payment ke liye neeche tap karein."
         )
         cta(to, body, 'PAY NOW', url)
     else:
         tx(to, "To complete your order please contact our team. A payment link will be shared shortly.")
-
     item_lines = '\n'.join(
         f"  - {i.get('product_name','Item')} x{i.get('quantity',1)} @ Rs.{i.get('item_price',0)}"
         for i in items
@@ -980,32 +909,15 @@ def flow_order_placed(to: str, phone: str, first_name: str, items: list, lang: s
         body=f"New order.\n\nRef: {ref}\nCustomer: {first_name}\nPhone: {phone}\n\nItems:\n{item_lines}\n\nTotal: Rs.{total/100:.2f}"
     )
 
-# Fallback
-def flow_aru_fallback(to: str, first_name: str, lang: str):
-    btns(to,
-        (
-            f"Thank you for reaching out, {first_name}.\n"
-            "Our team is here to assist you."
-            if lang == 'en' else
-            f"Humse contact karne ke liye shukriya, {first_name}.\n"
-            "Hamari team aapki madad ke liye available hai."
-        ),
-        [
-            {'id': 'BROWSE',       'title': 'BROWSE COLLECTIONS'},
-            {'id': 'CUSTOM_ORDER', 'title': 'CUSTOM ORDER'},
-            {'id': 'CONTACT_TEAM', 'title': 'CONTACT TEAM'},
-        ]
-    )
-
 # ─────────────────────────────────────────────────────────────
 # KEYWORDS
 # ─────────────────────────────────────────────────────────────
 
 _KW = {
     'greet':    {'hi', 'hello', 'hey', 'hlo', 'hii', 'start', 'namaste'},
-    'tracking': {'order', 'track', 'status', 'delivery', 'shipping'},
+    'tracking': {'order', 'track', 'status', 'delivery'},
     'referral': {'referral', 'refer', 'code', 'invite'},
-    'custom':   {'custom', 'customize', 'bespoke', 'special order', 'custom order'},
+    'custom':   {'custom', 'customize', 'bespoke', 'customise'},
     'hours':    {'timing', 'time', 'open', 'close', 'hours'},
     'about':    {'about', 'brand', 'studio', 'company'},
     'help':     {'help', 'support', 'assist'},
@@ -1050,115 +962,90 @@ def handle(phone: str, msg: dict):
 
         # Custom order description step
         if s.get('custom_step') == 'awaiting_description':
-            if is_design_description(text):
-                # Valid description — save and confirm
+            if is_design_desc(text):
                 s['custom_step'] = None
-                flow_custom_order_done(phone, first_name, phone, text,
-                                       status == 'b2b', lang)
+                flow_custom_done(phone, first_name, phone, text, status == 'b2b', lang)
             else:
-                # Customer seems confused — Aru responds, keeps step active
                 aru = ask_aru(text, lang, first_name,
-                              "Customer is being asked to describe a custom jewelry order. "
-                              "They seem confused. Gently clarify what details we need "
-                              "(jewelry type, material, occasion, design ideas).")
-                if aru:
-                    tx(phone, aru)
-                else:
-                    tx(phone,
-                        "No worries. Please tell us what kind of jewellery you would like — "
-                        "type, material, occasion, and any design preference."
-                        if lang == 'en' else
-                        "Koi baat nahi. Batayein aap kaise jewellery chahte hain — "
-                        "type, material, occasion, aur koi design idea."
-                    )
+                    "Customer is being asked for custom jewelry requirements. "
+                    "They seem confused. Gently ask for jewelry type, material, occasion.")
+                tx(phone, aru if aru else (
+                    "Please describe the jewelry you have in mind — type, material, occasion, and design."
+                    if lang == 'en' else
+                    "Jewelry ki requirements batayein — type, material, occasion, aur design."
+                ))
             return
 
         # Order reference
         if re.match(r'AJS-[A-Z0-9]+-\d+', text.upper()):
             tx(phone,
-                f"To track order {text.upper()}, {first_name}, please contact our team "
-                "and they will provide the latest status shortly."
+                f"To track order {text.upper()}, please contact our team and they will update you shortly."
                 if lang == 'en' else
-                f"Order {text.upper()} track karne ke liye, {first_name}, hamari team se contact karein. "
-                "Woh jald hi latest status batayenge."
+                f"Order {text.upper()} ke liye hamari team se contact karein. Woh jald update karenge."
             )
             return
 
         kw = detect_kw(text)
 
         if kw == 'greet':
-            if status == 'b2b':
-                flow_b2b_welcome(phone, first_name, lang)
-            else:
-                flow_retail_welcome(phone, first_name, lang)
-            return
+            flow_welcome(phone, first_name, lang); return
 
         if kw == 'tracking':
             tx(phone,
-                f"To track your order, {first_name}, please share your Order Reference "
-                "(format: AJS-XXXX-XXXXXXXXXX). Our team will update you shortly."
+                f"Please share your Order Reference (AJS-XXXX-XXXXXXXXXX), {first_name}. "
+                "Our team will update you shortly."
                 if lang == 'en' else
-                f"Order track karne ke liye, {first_name}, Order Reference share karein "
-                "(format: AJS-XXXX-XXXXXXXXXX). Hamari team jald hi update karegi."
+                f"Order Reference share karein (AJS-XXXX-XXXXXXXXXX), {first_name}. "
+                "Team jald update karegi."
             )
             return
 
         if kw == 'referral':
             code = referral_code(first_name, phone)
             url  = f"https://{SHOPIFY_STORE}/pages/join-us?ref={code}"
-            body = (
-                f"Your Referral Code\n\nCode: {code}\n\n"
-                "Share this with friends and family. When they register using your code, "
-                "they join the A Jewel Studio family."
+            cta(phone,
+                f"Your Referral Code: {code}\n\n"
+                "Share with friends and family to invite them to A Jewel Studio."
                 if lang == 'en' else
-                f"Aapka Referral Code\n\nCode: {code}\n\n"
-                "Yeh code doston aur family ke saath share karein. Jab woh aapke code se "
-                "register karenge, woh A Jewel Studio family ka hissa ban jayenge."
-            )
-            cta(phone, body, 'SHARE REFERRAL', url)
+                f"Aapka Referral Code: {code}\n\n"
+                "Doston aur family ke saath share karein.",
+                'SHARE REFERRAL', url)
             return
 
         if kw == 'custom':
-            flow_custom_order_start(phone, first_name, phone, status == 'b2b', lang)
-            return
+            flow_custom_start(phone, first_name, phone, status == 'b2b', lang); return
 
         if kw == 'hours':
             tx(phone,
-                "A Jewel Studio\n\nBusiness Hours:\n"
-                "Monday to Saturday — 10:00 AM to 7:00 PM\n"
-                "Sunday — By Appointment Only"
+                "A Jewel Studio\nMonday to Saturday: 10:00 AM – 7:00 PM\nSunday: By Appointment Only"
                 if lang == 'en' else
-                "A Jewel Studio\n\nKaam ke Ghante:\n"
-                "Somvar se Shanivar — Subah 10 baje se Shaam 7 baje tak\n"
-                "Itwar — Sirf Appointment par"
+                "A Jewel Studio\nSomvar se Shanivar: Subah 10 – Shaam 7\nItwar: Sirf Appointment par"
             )
             return
 
         if kw == 'about':
             tx(phone,
-                "A Jewel Studio is a premium jewellery brand offering an exclusive range of "
-                "handcrafted pieces for every occasion — traditional bridal to modern everyday designs."
+                "A Jewel Studio is a premium jewelry brand offering handcrafted pieces for every occasion."
                 if lang == 'en' else
-                "A Jewel Studio ek premium jewellery brand hai jo har occasion ke liye "
-                "exclusive handcrafted pieces offer karta hai."
+                "A Jewel Studio ek premium jewelry brand hai — har occasion ke liye exclusive handcrafted pieces."
             )
             return
 
-        # Fuzzy product search
+        # Fuzzy search
         result = fuzzy_search(text)
         if result['found']:
             tx(phone,
-                "I found a matching collection for your search.\nExplore the products below."
+                f"Found a matching collection for your search."
                 if lang == 'en' else
-                "Aapki search ke liye ek matching collection mila.\nNeeche products dekhen."
+                f"Aapki search ke liye matching collection mila."
             )
             _p()
             flow_open_collection(phone, result['id'], result['name'], lang)
             return
 
-        # Aru handles everything else
+        # Aru
         aru = ask_aru(text, lang, first_name,
-                      f"Customer status: {status}. Any topic possible — products, availability, recommendations, general.")
+                      f"Status: {status}. Topics: products, availability, recommendations.")
         if aru:
             result2 = fuzzy_search(aru)
             if result2['found']:
@@ -1169,117 +1056,106 @@ def handle(phone: str, msg: dict):
             tx(phone, aru)
             _p()
 
-        if status == 'b2b':
-            flow_b2b_welcome(phone, first_name, lang)
-        else:
-            flow_main_menu(phone, lang)
+        flow_welcome(phone, first_name, lang)
         return
 
     # ── INTERACTIVE ───────────────────────────────────────────
     if mtype == 'interactive':
         itype = msg['interactive'].get('type')
 
+        # Button reply
         if itype == 'button_reply':
             bid = msg['interactive']['button_reply']['id']
             log.info(f"Button: {bid}")
 
-            if bid in ('BROWSE', 'MENU'):
-                flow_main_menu(phone, lang)
-            elif bid == 'W_FACE':
-                flow_face_menu(phone, lang)
-            elif bid == 'W_HAND':
-                flow_hand_menu(phone, lang)
-            elif bid == 'W_NECK':
-                flow_neck_menu(phone, lang)
-            elif bid == 'W_LOWER':
-                flow_lower(phone, lang)
-            elif bid == 'F_EARRINGS':
-                flow_face_earrings(phone, lang)
-            elif bid == 'F_NOSE':
-                flow_face_nose(phone, lang)
-            elif bid == 'F_HEAD':
-                flow_face_head(phone, lang)
-            elif bid == 'F_HAIR':
-                flow_face_hair(phone, lang)
-            elif bid == 'H_BANGLES':
-                flow_hand_bangles(phone, lang)
-            elif bid == 'H_BRACELETS':
-                flow_hand_bracelets(phone, lang)
-            elif bid == 'H_ARMLETS':
-                flow_hand_armlets(phone, lang)
-            elif bid == 'H_RINGS':
-                flow_hand_rings(phone, lang)
-            elif bid == 'M_RINGS':
-                flow_men_rings(phone, lang)
-            elif bid == 'M_BRACELETS':
-                flow_men_bracelets(phone, lang)
-            elif bid == 'M_CHAINS':
-                flow_men_chains(phone, lang)
-            elif bid == 'M_ACCESSORIES':
-                flow_men_accessories(phone, lang)
-            elif bid == 'S_WATCHES':
-                flow_watches(phone, lang)
-            elif bid == 'S_ACCSS':
-                flow_studio_acc(phone, lang)
-            elif bid == 'CUSTOM_ORDER':
-                flow_custom_order_start(phone, first_name, phone, status == 'b2b', lang)
-            elif bid == 'MY_ORDERS':
-                tx(phone,
-                    f"To track your order, {first_name}, please share your Order Reference Number."
-                    if lang == 'en' else
-                    f"Order track karne ke liye, {first_name}, Order Reference Number share karein."
-                )
+            if bid == 'MENU':
+                flow_action_menu(phone, lang)
+
+            elif bid == 'W_FACE':     flow_face_menu(phone, lang)
+            elif bid == 'W_HAND':     flow_hand_menu(phone, lang)
+            elif bid == 'W_NECK':     flow_neck_menu(phone, lang)
+            elif bid == 'W_LOWER':    flow_lower(phone, lang)
+            elif bid == 'F_EARRINGS': flow_face_earrings(phone, lang)
+            elif bid == 'F_NOSE':     flow_face_nose(phone, lang)
+            elif bid == 'F_HEAD':     flow_face_head(phone, lang)
+            elif bid == 'F_HAIR':     flow_face_hair(phone, lang)
+            elif bid == 'H_BANGLES':  flow_hand_bangles(phone, lang)
+            elif bid == 'H_BRACELETS':flow_hand_bracelets(phone, lang)
+            elif bid == 'H_ARMLETS':  flow_hand_armlets(phone, lang)
+            elif bid == 'H_RINGS':    flow_hand_rings(phone, lang)
+            elif bid == 'S_WATCHES':  flow_watches(phone, lang)
+            elif bid == 'S_ACCSS':    flow_studio_acc(phone, lang)
+
+            elif bid == 'ACT_CUSTOMISE':
+                flow_custom_start(phone, first_name, phone, status == 'b2b', lang)
+
+            elif bid == 'ACT_CATALOGS':
+                flow_catalogs(phone, lang)
+
             elif bid == 'CONTACT_TEAM':
                 tx(phone,
-                    "Our team is available Monday to Saturday, 10 AM to 7 PM.\n"
-                    "Someone will reach out to you shortly."
+                    "Our team is available Mon–Sat, 10 AM to 7 PM. Someone will reach out shortly."
                     if lang == 'en' else
-                    "Hamari team Somvar se Shanivar, 10 AM se 7 PM tak available hai.\n"
-                    "Koi jald hi aapse contact karega."
-                )
-            elif bid == 'UPLOAD_FILE':
-                tx(phone,
-                    "Please upload your design file or reference image directly in this chat.\n"
-                    "Our team will review it within 24 hours."
-                    if lang == 'en' else
-                    "Apna design file ya reference image seedha is chat mein upload karein.\n"
-                    "Hamari team 24 ghante mein review karegi."
+                    "Hamari team Somvar se Shanivar, 10 AM–7 PM available hai. Koi jald contact karega."
                 )
 
+            elif bid == 'UPLOAD_FILE':
+                tx(phone,
+                    "Please upload your design file or reference image in this chat. "
+                    "Our team will review it within 24 hours."
+                    if lang == 'en' else
+                    "Design file ya reference image is chat mein upload karein. "
+                    "Team 24 ghante mein review karegi."
+                )
+
+        # List reply
         elif itype == 'list_reply':
             lid = msg['interactive']['list_reply']['id']
             log.info(f"List: {lid}")
 
-            if lid == 'CAT_BABY':
-                flow_baby(phone, lang)
-            elif lid == 'CAT_WOMEN':
-                flow_women_body(phone, lang)
-            elif lid == 'CAT_MEN':
-                flow_men_menu(phone, lang)
-            elif lid == 'CAT_STUDIO':
-                flow_studio_menu(phone, lang)
-            elif lid == 'CAT_SACRED':
-                flow_empty_catalog(phone, lang)
+            if lid == 'ACT_CATALOGS':
+                flow_catalogs(phone, lang)
+            elif lid == 'ACT_CUSTOMISE':
+                flow_custom_start(phone, first_name, phone, status == 'b2b', lang)
+            elif lid == 'ACT_ORDERS':
+                tx(phone,
+                    f"Please share your Order Reference Number, {first_name} (format: AJS-XXXX-XXXXXXXXXX)."
+                    if lang == 'en' else
+                    f"Order Reference Number share karein, {first_name} (format: AJS-XXXX-XXXXXXXXXX)."
+                )
+
+            elif lid == 'CAT_BABY':   flow_baby(phone, lang)
+            elif lid == 'CAT_WOMEN':  flow_women_body(phone, lang)
+            elif lid == 'CAT_MEN':    flow_men_menu(phone, lang)
+            elif lid == 'CAT_STUDIO': flow_studio_menu(phone, lang)
+            elif lid == 'CAT_SACRED': flow_empty_catalog(phone, lang)
+
+            # Men sub-categories (from scroll list)
+            elif lid == 'M_RINGS':       flow_men_rings(phone, lang)
+            elif lid == 'M_BRACELETS':   flow_men_bracelets(phone, lang)
+            elif lid == 'M_CHAINS':      flow_men_chains(phone, lang)
+            elif lid == 'M_ACCESSORIES': flow_men_accessories(phone, lang)
+
             elif lid.startswith('C_'):
                 cid   = lid[2:]
                 cname = ID_TO_NAME.get(cid, 'Collection')
                 flow_open_collection(phone, cid, cname, lang)
+
         return
 
     # ── IMAGE ─────────────────────────────────────────────────
     if mtype == 'image':
         image_id = msg.get('image', {}).get('id')
         tx(phone,
-            "Thank you for sharing the image.\nAnalyzing the design, please wait."
+            "Analyzing the design, please wait."
             if lang == 'en' else
-            "Image share karne ke liye shukriya.\nDesign analyze ho raha hai, please wait."
+            "Design analyze ho raha hai, please wait."
         )
         _p(1)
         if image_id:
             url_r = requests.get(
                 f"https://graph.facebook.com/v19.0/{image_id}",
-                headers={'Authorization': f'Bearer {WA_TOKEN}'},
-                timeout=10
+                headers={'Authorization': f'Bearer {WA_TOKEN}'}, timeout=10
             )
             if url_r.ok:
                 vision = aru_vision(url_r.json().get('url', ''))
@@ -1287,22 +1163,19 @@ def handle(phone: str, msg: dict):
                     result = fuzzy_search(vision['query'])
                     if result['found']:
                         tx(phone,
-                            "I found a similar collection for this design.\nExplore the products below."
-                            if lang == 'en' else
-                            "Is design ke liye ek similar collection mila.\nNeeche products dekhen."
+                            "Found a similar collection for this design."
+                            if lang == 'en' else "Is design ke liye similar collection mila."
                         )
                         _p()
                         flow_open_collection(phone, result['id'], result['name'], lang)
                         return
         tx(phone,
-            "Thank you for the reference.\nPlease describe what you are looking for "
-            "and I will help you find the perfect piece."
+            "Please describe what you are looking for and I will help you find the perfect piece."
             if lang == 'en' else
-            "Reference ke liye shukriya.\nBatayein aap kya dhundh rahe hain "
-            "aur main perfect piece dhundhne mein madad karungi."
+            "Batayein aap kya dhundh rahe hain — main perfect piece dhundhne mein madad karungi."
         )
         _p()
-        btn1(phone, 'Would you like to place a custom order?', 'CUSTOM_ORDER', 'CUSTOM ORDER')
+        btn1(phone, 'Would you like a custom order?', 'ACT_CUSTOMISE', 'CUSTOMISE JEWELRY')
         return
 
     # ── ORDER (catalog cart) ──────────────────────────────────
@@ -1328,7 +1201,6 @@ def webhook():
         data = request.get_json(silent=True)
         if not data or data.get('object') != 'whatsapp_business_account':
             return jsonify({'status': 'ok'}), 200
-
         msgs = (
             data.get('entry',   [{}])[0]
                 .get('changes', [{}])[0]
@@ -1351,21 +1223,18 @@ def webhook():
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
-        'status':          'healthy',
-        'service':         'A Jewel Studio WhatsApp Bot',
-        'assistant':       'Aru',
-        'collections':     82,
-        'active_sessions': len(_sessions),
-        'timestamp':       datetime.now().isoformat(),
+        'status':    'healthy',
+        'service':   'A Jewel Studio WhatsApp Bot',
+        'assistant': 'Aru',
+        'sessions':  len(_sessions),
+        'timestamp': datetime.now().isoformat(),
     }), 200
 
 @app.after_request
 def security(r):
-    r.headers.update({
-        'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options':        'DENY',
-        'X-XSS-Protection':       '1; mode=block',
-    })
+    r.headers.update({'X-Content-Type-Options': 'nosniff',
+                      'X-Frame-Options': 'DENY',
+                      'X-XSS-Protection': '1; mode=block'})
     return r
 
 @app.errorhandler(404)
@@ -1373,8 +1242,7 @@ def not_found(_): return jsonify({'error': 'Not found'}), 404
 
 @app.errorhandler(500)
 def server_error(e):
-    log.error(e)
-    return jsonify({'error': 'Server error'}), 500
+    log.error(e); return jsonify({'error': 'Server error'}), 500
 
 # ─────────────────────────────────────────────────────────────
 # ENTRY
