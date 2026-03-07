@@ -849,24 +849,22 @@ def flow_open_collection(to: str, cid: str, cname: str, lang: str):
 
 # ── EMPTY CATALOG — single message + CONTACT US ───────────────
 def flow_empty_catalog(to: str, lang: str):
-    cta(to,
+    tx(to,
         _hi(
             f"This collection is being updated.\n\n"
-            f"We accept custom orders — chat 'menu' to go to Custom Jewelry "
+            f"We accept custom orders — type \"menu\" to go to Custom Jewelry "
             f"and place your order. Our team can craft a design of your choice.\n\n"
             f"Call/WhatsApp: {CONTACT_PHONE}\n"
             f"Email: {CONTACT_EMAIL}",
 
             f"Yeh collection abhi update ho rahi hai.\n\n"
-            f"Hum custom orders le rahe hain, chat pe \"menu\" likh ke "
+            f"Hum custom orders le rahe hain — \"menu\" likh ke "
             f"Custom Jewelry mein jaayein aur order place karein. "
             f"Hamari team aapki choice ki design bana sakti hai.\n\n"
             f"Call/WhatsApp: {CONTACT_PHONE}\n"
             f"Email: {CONTACT_EMAIL}",
             lang
-        ),
-        "CONTACT US",
-        CONTACT_WA
+        )
     )
 
 # ── CUSTOM ORDER ──────────────────────────────────────────────
@@ -881,12 +879,14 @@ def flow_custom_start(to: str, first_name: str, phone: str, is_b2b: bool, lang: 
             lang
         )
     )
+    # B2B: simply mention they can upload image directly in chat
     if is_b2b:
         _p()
-        btn1(to,
-            _hi('You may also upload a reference design file.',
-                'Reference design file bhi upload kar sakte hain.', lang),
-            'UPLOAD_FILE', 'UPLOAD DESIGN FILE')
+        tx(to, _hi(
+            "You may also upload a reference image directly in this chat.",
+            "Aap reference image seedha is chat mein bhi upload kar sakte hain.",
+            lang
+        ))
 
 def flow_custom_done(to: str, first_name: str, phone: str, desc: str, is_b2b: bool, lang: str):
     tx(to,
@@ -937,7 +937,7 @@ def flow_order_placed(to: str, phone: str, first_name: str, items: list, lang: s
 # ─────────────────────────────────────────────────────────────
 
 _KW = {
-    'greet':    {'hi', 'hello', 'hey', 'hlo', 'hii', 'start', 'namaste', 'menu'},
+    'greet':    {'hi', 'hello', 'hey', 'hlo', 'hii', 'start', 'namaste', 'menu', 'main menu'},
     'tracking': {'order', 'track', 'status', 'delivery'},
     'referral': {'referral', 'refer', 'code', 'invite'},
     'custom':   {'custom', 'customize', 'bespoke', 'customise'},
@@ -1011,7 +1011,13 @@ def handle(phone: str, msg: dict):
 
         # "Hi" / "menu" mid-session — show menu only, no full welcome restart
         if kw == 'greet':
-            if s.get('welcomed'):
+            text_lower = text.lower().strip()
+            if text_lower in ('menu', 'main menu'):
+                # "menu" always shows the top-level welcome list
+                s['welcomed'] = True
+                flow_welcome(phone, first_name, lang)
+            elif s.get('welcomed'):
+                # "hi" mid-session → catalogs only
                 flow_catalogs(phone, lang)
             else:
                 s['welcomed'] = True
@@ -1113,14 +1119,6 @@ def handle(phone: str, msg: dict):
             elif bid == 'S_ACCSS':   flow_studio_acc(phone, lang)
             elif bid == 'ACT_CUSTOM':
                 flow_custom_start(phone, first_name, phone, status == 'b2b', lang)
-            elif bid == 'UPLOAD_FILE':
-                tx(phone, _hi(
-                    "Please upload your design file or reference image in this chat. "
-                    "Our team will review it within 24 hours.",
-                    "Design file ya reference image is chat mein upload karein. "
-                    "Team 24 ghante mein review karegi.",
-                    lang
-                ))
 
         elif itype == 'list_reply':
             lid = msg['interactive']['list_reply']['id']
@@ -1160,24 +1158,59 @@ def handle(phone: str, msg: dict):
             lang
         ))
         _p(1)
+
+        image_url = None
         if image_id:
             url_r = requests.get(
                 f"https://graph.facebook.com/v19.0/{image_id}",
                 headers={'Authorization': f'Bearer {WA_TOKEN}'}, timeout=10
             )
             if url_r.ok:
-                vision = aru_vision(url_r.json().get('url', ''))
-                if vision:
-                    result = fuzzy_search(vision['query'])
-                    if result['found']:
-                        tx(phone, _hi(
-                            "Found a similar collection for this design.",
-                            "Is design ke liye similar collection mili.",
-                            lang
-                        ))
-                        _p()
-                        flow_open_collection(phone, result['id'], result['name'], lang)
-                        return
+                image_url = url_r.json().get('url', '')
+
+        # If in custom order step — treat as design reference image
+        if s.get('custom_step') == 'awaiting_description':
+            s['custom_step'] = None
+            ref = f"AJS-{phone[-4:]}-{int(datetime.now().timestamp())}"
+            tx(phone, _hi(
+                f"Thank you for sharing your design reference.\n\n"
+                f"Your Custom Order Reference: {ref}\n\n"
+                f"Our design team will review your image and contact you within 24 hours.",
+                f"Design reference share karne ke liye shukriya.\n\n"
+                f"Aapka Custom Order Reference: {ref}\n\n"
+                f"Hamari design team aapki image review karke 24 ghante mein contact karegi.",
+                lang
+            ))
+            admin_email(
+                subject=f"Custom Order (Image) — {first_name} — {phone}",
+                body=(
+                    f"Custom order with image reference received.\n\n"
+                    f"Customer : {first_name}\n"
+                    f"Phone    : {phone}\n"
+                    f"Ref      : {ref}\n"
+                    f"Type     : {'B2B' if status == 'b2b' else 'Retail'}\n\n"
+                    f"Customer uploaded a reference image.\n"
+                    f"Image URL: {image_url or 'See WhatsApp chat'}"
+                )
+            )
+            return
+
+        # Otherwise — try to find matching collection via Vision AI
+        if image_url:
+            vision = aru_vision(image_url)
+            if vision:
+                result = fuzzy_search(vision['query'])
+                if result['found']:
+                    tx(phone, _hi(
+                        "Found a similar collection for this design.",
+                        "Is design ke liye similar collection mili.",
+                        lang
+                    ))
+                    _p()
+                    flow_open_collection(phone, result['id'], result['name'], lang)
+                    return
+
+        # No match — offer custom order
         tx(phone, _hi(
             "Please describe what you are looking for and I will help you find the perfect piece.",
             "Batayein aap kya dhundh rahe hain — main perfect piece dhundhne mein madad karungi.",
